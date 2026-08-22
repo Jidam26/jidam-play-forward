@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+:root {
+  --color-navy: #0a1f44;
+  --color-navy-light: #14315f;
+  --color-gold: #b8860b;
+  --color-gold-light: #d4a017;
+  --color-offwhite: #f7f5f0;
+  --color-ink: #1a1a1a;
+
+  --background: var(--color-offwhite);
+  --foreground: var(--color-ink);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-navy: var(--color-navy);
+  --color-navy-light: var(--color-navy-light);
+  --color-gold: var(--color-gold);
+  --color-gold-light: var(--color-gold-light);
+  --color-offwhite: var(--color-offwhite);
+  --font-sans: var(--font-inter);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
