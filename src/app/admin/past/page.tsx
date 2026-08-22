@@ -73,7 +73,10 @@ export default async function PastGamesPage() {
           <div className="mt-3 space-y-6">
             {games.map((game) => {
               const expenses = expensesByGame.get(game.id) ?? [];
-              const revenue = revenueByGame.get(game.id) ?? 0;
+              // Imported historical games record a known total directly
+              // (see src/lib/db.ts) since there's no real per-attendee
+              // booking data for them; everything else uses real payments.
+              const revenue = game.imported_revenue ?? revenueByGame.get(game.id) ?? 0;
               const expenseTotal = expenses.reduce((sum, e) => sum + e.amount, 0);
               const profit = revenue - expenseTotal;
               return (

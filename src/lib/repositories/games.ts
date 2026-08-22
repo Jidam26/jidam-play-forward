@@ -14,6 +14,9 @@ export type Game = {
   spots_filled: number;
   payment_link: string | null;
   status: "active" | "cancelled";
+  // Set only on imported historical games with no real per-attendee
+  // bookings -- see the comment on the column in src/lib/db.ts.
+  imported_revenue: number | null;
   created_at: string;
 };
 
@@ -31,11 +34,17 @@ export async function listUpcomingGames(): Promise<Game[]> {
   return rows;
 }
 
-/** Cancelled games (any date) -- admin-only, so they can still see who to notify. */
+/**
+ * Cancelled games that hadn't happened yet -- admin-only, so they can still
+ * see who to notify. A cancellation from a game whose date has already
+ * passed has no one left to notify, so it only lives in Past Games instead
+ * of cluttering this list forever.
+ */
 export async function listCancelledGames(): Promise<Game[]> {
   await ensureDb();
   const { rows } = await getPool().query<Game>(
-    "SELECT * FROM games WHERE status = 'cancelled' ORDER BY date DESC, time DESC"
+    "SELECT * FROM games WHERE status = 'cancelled' AND date >= $1 ORDER BY date ASC, time ASC",
+    [today()]
   );
   return rows;
 }

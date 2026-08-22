@@ -81,6 +81,11 @@ async function migrate(client: PoolClient) {
       spots_filled INTEGER NOT NULL DEFAULT 0,
       payment_link TEXT,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cancelled')),
+      -- Set only for imported historical games where real per-attendee
+      -- bookings aren't available, just a known total from records kept
+      -- outside the app. When set, this is shown instead of the sum of
+      -- real 'paid' bookings. Null for every game the app created itself.
+      imported_revenue DOUBLE PRECISION,
       created_at TEXT NOT NULL DEFAULT (now()::text)
     );
 
@@ -120,6 +125,7 @@ async function migrate(client: PoolClient) {
     -- backfill them explicitly. No-ops once the columns already exist.
     ALTER TABLE games ADD COLUMN IF NOT EXISTS payment_link TEXT;
     ALTER TABLE games ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+    ALTER TABLE games ADD COLUMN IF NOT EXISTS imported_revenue DOUBLE PRECISION;
   `);
 
   // The 'role' CHECK constraint above only applies to a freshly created
@@ -227,6 +233,106 @@ async function purgeDemoDataIfNeeded(client: PoolClient) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// One-time import of the real Jul-Aug 2026 football and volleyball games,
+// from JIDAM_Simple_Summary.docx and Jidam_football_games_Julaug.docx. These
+// only have aggregate totals (no per-attendee data), so revenue is recorded
+// directly via `imported_revenue` rather than fabricated bookings. Gated
+// like the migrations above so it only ever runs once.
+// ---------------------------------------------------------------------------
+
+const IMPORTED_VOLLEYBALL = [
+  { date: "2026-07-25", time: "18:30", venue: "Sports Hub (Open Level)", rent: 450, operator: 0, revenue: 0 },
+  { date: "2026-08-01", time: "18:30", venue: "The Sports Hub (Open Level)", rent: 450, operator: 26, revenue: 578 },
+  { date: "2026-08-05", time: "18:30", venue: "The Sports Hub (Open Level)", rent: 375, operator: 37, revenue: 560 },
+  { date: "2026-08-07", time: "18:30", venue: "The Sports Hub (Collab)", rent: 450, operator: 0, revenue: 450 },
+  { date: "2026-08-08", time: "18:30", venue: "The Sports Hub AD (5-1)", rent: 450, operator: 14, revenue: 520 },
+  { date: "2026-08-15", time: "18:00", venue: "The Sports Hub AD (5-1)", rent: 450, operator: 22, revenue: 560 },
+  { date: "2026-08-15", time: "20:00", venue: "The Sports Hub AD (Open Level)", rent: 450, operator: 29, revenue: 595 },
+  { date: "2026-08-18", time: "18:30", venue: "The Sports Hub AD (Open Level)", rent: 450, operator: 36, revenue: 630 },
+  { date: "2026-08-20", time: "18:30", venue: "The Sports Hub AD (Open Level)", rent: 450, operator: 36, revenue: 630 },
+];
+
+const IMPORTED_FOOTBALL = [
+  { date: "2026-07-21", status: "active", free: true, revenue: 0, expense: 354 },
+  { date: "2026-07-23", status: "active", free: false, revenue: 540, expense: 348 },
+  { date: "2026-07-26", status: "active", free: false, revenue: 510, expense: 348 },
+  { date: "2026-07-28", status: "active", free: false, revenue: 510, expense: 348 },
+  { date: "2026-08-02", status: "active", free: false, revenue: 540, expense: 336 },
+  { date: "2026-08-04", status: "active", free: false, revenue: 540, expense: 336 },
+  { date: "2026-08-06", status: "active", free: false, revenue: 540, expense: 336 },
+  { date: "2026-08-11", status: "active", free: false, revenue: 540, expense: 336 },
+  { date: "2026-08-13", status: "active", free: false, revenue: 540, expense: 336 },
+  { date: "2026-08-16", status: "active", free: false, revenue: 810, expense: 250 },
+  { date: "2026-08-18", status: "active", free: false, revenue: 720, expense: 250 },
+  { date: "2026-08-20", status: "cancelled", free: false, revenue: 0, expense: 336 },
+];
+
+async function importRealGamesIfNeeded(client: PoolClient) {
+  await client.query("BEGIN");
+  try {
+    const gate = await client.query(
+      `INSERT INTO app_meta (key, value) VALUES ('imported_real_games_v1', '1') ON CONFLICT (key) DO NOTHING RETURNING key`
+    );
+    if (gate.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return;
+    }
+
+    const insertGame = async (
+      sport: string,
+      date: string,
+      time: string,
+      venue: string,
+      priceAed: number,
+      totalSpots: number,
+      status: string,
+      importedRevenue: number
+    ) => {
+      const id = randomUUID();
+      await client.query(
+        `INSERT INTO games (id, sport, date, time, venue, price_aed, total_spots, spots_filled, status, imported_revenue)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $9)`,
+        [id, sport, date, time, venue, priceAed, totalSpots, status, importedRevenue]
+      );
+      return id;
+    };
+
+    const insertExpense = (gameId: string, description: string, amount: number) =>
+      client.query(`INSERT INTO expenses (id, game_id, description, amount) VALUES ($1, $2, $3, $4)`, [
+        randomUUID(),
+        gameId,
+        description,
+        amount,
+      ]);
+
+    for (const g of IMPORTED_VOLLEYBALL) {
+      const id = await insertGame("Volleyball", g.date, g.time, g.venue, 25, 12, "active", g.revenue);
+      await insertExpense(id, "Venue rent", g.rent);
+      if (g.operator > 0) await insertExpense(id, "Operator fee", g.operator);
+    }
+
+    for (const g of IMPORTED_FOOTBALL) {
+      const id = await insertGame(
+        "Football",
+        g.date,
+        "19:00",
+        "Venue not recorded",
+        g.free ? 0 : 30,
+        20,
+        g.status,
+        g.revenue
+      );
+      await insertExpense(id, "Game expenses", g.expense);
+    }
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  }
+}
+
 // Runs once per warm function instance (or dev process); later calls reuse
 // the same resolved promise instead of hitting the database again.
 let initialized: Promise<void> | null = null;
@@ -239,6 +345,7 @@ export function ensureDb(): Promise<void> {
         await migrate(client);
         await seedIfNeeded(client);
         await purgeDemoDataIfNeeded(client);
+        await importRealGamesIfNeeded(client);
       } finally {
         client.release();
       }

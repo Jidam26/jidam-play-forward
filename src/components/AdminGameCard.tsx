@@ -25,7 +25,10 @@ export function AdminGameCard({
   actions?: React.ReactNode;
   footer?: React.ReactNode;
 }) {
-  const revenue = attendees.reduce((sum, a) => sum + (a.payment_status === "paid" ? a.amount_paid : 0), 0);
+  // Imported historical games (see src/lib/db.ts) record a known total
+  // directly since there's no real per-attendee booking data for them.
+  const revenue =
+    game.imported_revenue ?? attendees.reduce((sum, a) => sum + (a.payment_status === "paid" ? a.amount_paid : 0), 0);
 
   return (
     <div className="rounded-2xl border border-navy/10 bg-white p-5 shadow-sm">
