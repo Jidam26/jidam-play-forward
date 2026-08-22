@@ -13,24 +13,40 @@ export type Game = {
   total_spots: number;
   spots_filled: number;
   payment_link: string | null;
+  status: "active" | "cancelled";
   created_at: string;
 };
 
-/** Upcoming = today or later, soonest first. */
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** Upcoming, non-cancelled games -- what members and the public games page see. */
 export async function listUpcomingGames(): Promise<Game[]> {
   await ensureDb();
-  const today = new Date().toISOString().slice(0, 10);
   const { rows } = await getPool().query<Game>(
-    "SELECT * FROM games WHERE date >= $1 ORDER BY date ASC, time ASC",
-    [today]
+    "SELECT * FROM games WHERE date >= $1 AND status = 'active' ORDER BY date ASC, time ASC",
+    [today()]
   );
   return rows;
 }
 
-/** All games (past + upcoming), soonest first -- used by the admin dashboard. */
-export async function listAllGames(): Promise<Game[]> {
+/** Cancelled games (any date) -- admin-only, so they can still see who to notify. */
+export async function listCancelledGames(): Promise<Game[]> {
   await ensureDb();
-  const { rows } = await getPool().query<Game>("SELECT * FROM games ORDER BY date ASC, time ASC");
+  const { rows } = await getPool().query<Game>(
+    "SELECT * FROM games WHERE status = 'cancelled' ORDER BY date DESC, time DESC"
+  );
+  return rows;
+}
+
+/** Games whose date has passed (any status) -- the admin Past Games archive, most recent first. */
+export async function listPastGames(): Promise<Game[]> {
+  await ensureDb();
+  const { rows } = await getPool().query<Game>(
+    "SELECT * FROM games WHERE date < $1 ORDER BY date DESC, time DESC",
+    [today()]
+  );
   return rows;
 }
 
@@ -68,4 +84,15 @@ export async function createGame(input: CreateGameInput): Promise<Game> {
     ]
   );
   return rows[0];
+}
+
+/**
+ * Cancel a game (soft-delete). It disappears from the public/member games
+ * list immediately but stays visible to admins -- along with its attendee
+ * list -- so they can message everyone who booked. There's no automated
+ * notification (see src/lib/config.ts): the admin reaches out manually.
+ */
+export async function cancelGame(id: string): Promise<void> {
+  await ensureDb();
+  await getPool().query("UPDATE games SET status = 'cancelled' WHERE id = $1", [id]);
 }

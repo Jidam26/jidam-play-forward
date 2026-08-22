@@ -30,3 +30,37 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
 }
+
+/* ---------------------------------------------------------------------
+   Cinematic homepage-only palette and motion. Scoped to the public
+   marketing page (src/app/page.tsx) -- logged-in pages keep the plain
+   navy/gold/off-white system above untouched.
+   --------------------------------------------------------------------- */
+:root {
+  --cinema-void: #05070d;
+  --cinema-panel: #0b1220;
+  --cinema-gold: #f0c05a;
+  --cinema-gold-deep: #b8860b;
+  --cinema-glow: #2dd4bf;
+}
+
+@keyframes drift-a {
+  0%, 100% { transform: translate(-8%, -6%) scale(1); }
+  50% { transform: translate(6%, 8%) scale(1.15); }
+}
+@keyframes drift-b {
+  0%, 100% { transform: translate(10%, 6%) scale(1.1); }
+  50% { transform: translate(-6%, -10%) scale(0.95); }
+}
+@keyframes shine-sweep {
+  0% { transform: translateX(-120%) skewX(-15deg); }
+  100% { transform: translateX(220%) skewX(-15deg); }
+}
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cinema-motion { animation: none !important; }
+}

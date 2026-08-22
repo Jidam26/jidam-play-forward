@@ -80,6 +80,7 @@ async function migrate(client: PoolClient) {
       total_spots INTEGER NOT NULL,
       spots_filled INTEGER NOT NULL DEFAULT 0,
       payment_link TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cancelled')),
       created_at TEXT NOT NULL DEFAULT (now()::text)
     );
 
@@ -93,11 +94,22 @@ async function migrate(client: PoolClient) {
       UNIQUE (user_id, game_id)
     );
 
-    -- 'games' already existed in production before payment_link was added,
-    -- so CREATE TABLE IF NOT EXISTS above won't add it there. This backfills
-    -- the column on any database created before this change; it's a no-op
-    -- once the column already exists.
+    -- General expenses aren't tied to a game (e.g. equipment, admin costs);
+    -- game-specific ones (venue rental, referee fees) reference a game and
+    -- feed into that game's profit/loss on the Past Games page.
+    CREATE TABLE IF NOT EXISTS expenses (
+      id TEXT PRIMARY KEY,
+      game_id TEXT REFERENCES games(id) ON DELETE SET NULL,
+      description TEXT NOT NULL,
+      amount DOUBLE PRECISION NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (now()::text)
+    );
+
+    -- Columns added after initial release: CREATE TABLE IF NOT EXISTS above
+    -- won't add them to a database that already has the table, so these
+    -- backfill them explicitly. No-ops once the columns already exist.
     ALTER TABLE games ADD COLUMN IF NOT EXISTS payment_link TEXT;
+    ALTER TABLE games ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
   `);
 }
 
@@ -182,6 +194,14 @@ async function seedDemoData(client: PoolClient) {
 
   const bumpGame = (gameId: string) => client.query(`UPDATE games SET spots_filled = spots_filled + 1 WHERE id = $1`, [gameId]);
 
+  const insertExpense = (id: string, gameId: string | null, description: string, amount: number) =>
+    client.query(`INSERT INTO expenses (id, game_id, description, amount) VALUES ($1, $2, $3, $4)`, [
+      id,
+      gameId,
+      description,
+      amount,
+    ]);
+
   // Books `count` distinct users onto a game, inserting a real booking row
   // for each so spots_filled always matches the roster admins actually see.
   async function seedBookings(gameId: string, userIds: string[], paidCount: number, pricePerSpot: number) {
@@ -217,6 +237,15 @@ async function seedDemoData(client: PoolClient) {
   const g4 = randomUUID(); // Volleyball, 9/16 filled
   await insertGame(g4, "Volleyball", inDays(10), "17:00", "Corniche Beach Courts", volleyballPrice, 16);
   await seedBookings(g4, demoUserIds.slice(0, 9), 5, volleyballPrice);
+
+  // A past game with expenses logged, so the Past Games archive has a
+  // real example of the profit/loss view on a fresh deployment.
+  const g5 = randomUUID(); // Football, 7 days ago, 10/16 filled, all paid
+  await insertGame(g5, "Football", inDays(-7), "19:00", "Zayed Sports City, Abu Dhabi", footballPrice, 16);
+  await seedBookings(g5, demoUserIds.slice(0, 10), 10, footballPrice);
+  await insertExpense(randomUUID(), g5, "Venue rental", 150);
+  await insertExpense(randomUUID(), g5, "Match balls", 40);
+  await insertExpense(randomUUID(), null, "First-aid kit restock (general)", 60);
 }
 
 // Runs once per warm function instance (or dev process); later calls reuse

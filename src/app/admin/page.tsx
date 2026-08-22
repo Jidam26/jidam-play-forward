@@ -1,114 +1,70 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/session";
-import { listUpcomingGames, type Game } from "@/lib/repositories/games";
+import { listUpcomingGames, listCancelledGames, type Game } from "@/lib/repositories/games";
 import { listAttendeesForGame, type Attendee } from "@/lib/repositories/bookings";
-import { markPaidAction } from "@/lib/actions/bookings";
+import { AdminGameCard } from "@/components/AdminGameCard";
+import { CancelGameButton } from "@/components/CancelGameButton";
 import { NavBar } from "@/components/NavBar";
-import { SportBadge } from "@/components/SportBadge";
 
-function formatDate(dateStr: string) {
-  const date = new Date(`${dateStr}T00:00:00`);
-  return date.toLocaleDateString("en-AE", { weekday: "short", day: "numeric", month: "short" });
+async function attendeesFor(games: Game[]): Promise<Map<string, Attendee[]>> {
+  return new Map(await Promise.all(games.map(async (g): Promise<[string, Attendee[]]> => [g.id, await listAttendeesForGame(g.id)])));
 }
 
 export default async function AdminDashboardPage() {
   const session = await requireAdmin();
-  const games = await listUpcomingGames();
-  const attendeesByGame = new Map<string, Attendee[]>(
-    await Promise.all(games.map(async (g: Game): Promise<[string, Attendee[]]> => [g.id, await listAttendeesForGame(g.id)]))
-  );
+  const [liveGames, cancelledGames] = await Promise.all([listUpcomingGames(), listCancelledGames()]);
+  const [liveAttendees, cancelledAttendees] = await Promise.all([attendeesFor(liveGames), attendeesFor(cancelledGames)]);
 
   return (
     <>
       <NavBar session={session} />
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-10">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-extrabold text-navy">Admin Dashboard</h1>
-          <Link
-            href="/admin/games/new"
-            className="rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-navy hover:bg-gold-light"
-          >
-            + Publish a Game
-          </Link>
+          <div className="flex gap-2">
+            <Link
+              href="/admin/past"
+              className="rounded-lg border border-navy/20 px-4 py-2 text-sm font-semibold text-navy hover:bg-navy/5"
+            >
+              Past Games
+            </Link>
+            <Link
+              href="/admin/games/new"
+              className="rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-navy hover:bg-gold-light"
+            >
+              + Publish a Game
+            </Link>
+          </div>
         </div>
 
-        {games.length === 0 ? (
-          <p className="mt-10 text-center text-navy/50">No upcoming games. Publish one to get started.</p>
+        <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-navy/50">Live</h2>
+        {liveGames.length === 0 ? (
+          <p className="mt-4 text-center text-navy/50">No upcoming games. Publish one to get started.</p>
         ) : (
-          <div className="mt-6 space-y-6">
-            {games.map((game) => {
-              const attendees = attendeesByGame.get(game.id) ?? [];
-              const revenue = game.spots_filled * game.price_aed;
-              return (
-                <div key={game.id} className="rounded-2xl border border-navy/10 bg-white p-5 shadow-sm">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <SportBadge sport={game.sport} />
-                      <p className="mt-2 font-bold text-navy">
-                        {formatDate(game.date)} &middot; {game.time}
-                      </p>
-                      <p className="text-sm text-navy/70">{game.venue}</p>
-                    </div>
-                    <div className="text-right text-sm">
-                      <p className="font-semibold text-navy">
-                        {game.spots_filled}/{game.total_spots} filled
-                      </p>
-                      <p className="text-navy/60">Revenue: AED {revenue}</p>
-                    </div>
-                  </div>
-
-                  {attendees.length === 0 ? (
-                    <p className="mt-4 text-sm text-navy/50">No signups yet.</p>
-                  ) : (
-                    <div className="mt-4 overflow-x-auto">
-                      <table className="w-full min-w-[420px] text-left text-sm">
-                        <thead>
-                          <tr className="border-b border-navy/10 text-navy/50">
-                            <th className="py-2 pr-4 font-medium">Name</th>
-                            <th className="py-2 pr-4 font-medium">Email</th>
-                            <th className="py-2 pr-4 font-medium">Phone</th>
-                            <th className="py-2 font-medium">Payment</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {attendees.map((a) => (
-                            <tr key={a.booking_id} className="border-b border-navy/5 last:border-0">
-                              <td className="py-2 pr-4 text-navy">{a.name}</td>
-                              <td className="py-2 pr-4 text-navy/70">{a.email}</td>
-                              <td className="py-2 pr-4 text-navy/70">{a.phone}</td>
-                              <td className="py-2">
-                                <div className="flex items-center gap-2">
-                                  <span
-                                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                                      a.payment_status === "paid"
-                                        ? "bg-green-100 text-green-800"
-                                        : "bg-gold/15 text-navy"
-                                    }`}
-                                  >
-                                    {a.payment_status === "paid" ? "Paid" : "Reserved"}
-                                  </span>
-                                  {a.payment_status !== "paid" && (
-                                    <form action={markPaidAction.bind(null, a.booking_id, game.price_aed)}>
-                                      <button
-                                        type="submit"
-                                        className="rounded-full border border-navy/20 px-2 py-0.5 text-xs font-semibold text-navy hover:bg-navy/5"
-                                      >
-                                        Mark as Paid
-                                      </button>
-                                    </form>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+          <div className="mt-3 space-y-6">
+            {liveGames.map((game) => (
+              <AdminGameCard
+                key={game.id}
+                game={game}
+                attendees={liveAttendees.get(game.id) ?? []}
+                actions={<CancelGameButton gameId={game.id} />}
+              />
+            ))}
           </div>
+        )}
+
+        {cancelledGames.length > 0 && (
+          <>
+            <h2 className="mt-10 text-sm font-semibold uppercase tracking-wide text-navy/50">Cancelled</h2>
+            <p className="mt-1 text-xs text-navy/50">
+              Still visible so you can message everyone who booked. Not shown to members.
+            </p>
+            <div className="mt-3 space-y-6">
+              {cancelledGames.map((game) => (
+                <AdminGameCard key={game.id} game={game} attendees={cancelledAttendees.get(game.id) ?? []} />
+              ))}
+            </div>
+          </>
         )}
       </main>
     </>

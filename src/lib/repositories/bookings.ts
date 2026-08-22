@@ -123,3 +123,20 @@ export async function listAttendeesForGame(gameId: string): Promise<Attendee[]> 
   );
   return rows;
 }
+
+/**
+ * Actual revenue collected per game (sum of confirmed-paid bookings only --
+ * not spots_filled * price, which would count unpaid "reserved" spots too).
+ * Used for the Past Games profit/loss view.
+ */
+export async function totalRevenueByGame(gameIds: string[]): Promise<Map<string, number>> {
+  await ensureDb();
+  const totals = new Map<string, number>();
+  if (gameIds.length === 0) return totals;
+  const { rows } = await getPool().query<{ game_id: string; total: number }>(
+    `SELECT game_id, SUM(amount_paid) as total FROM bookings WHERE game_id = ANY($1) AND payment_status = 'paid' GROUP BY game_id`,
+    [gameIds]
+  );
+  for (const row of rows) totals.set(row.game_id, Number(row.total));
+  return totals;
+}

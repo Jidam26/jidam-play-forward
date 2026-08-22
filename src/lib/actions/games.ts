@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/session";
-import { createGame } from "@/lib/repositories/games";
+import { cancelGame, createGame } from "@/lib/repositories/games";
 
 export type FormState = { error?: string };
 
@@ -40,4 +40,18 @@ export async function publishGameAction(_prevState: FormState, formData: FormDat
   revalidatePath("/games");
   revalidatePath("/admin");
   redirect("/admin");
+}
+
+/**
+ * Admin-only: cancel a game. It's a soft-delete -- the game disappears from
+ * the public/member games list immediately, but stays visible to admins
+ * (with its attendee list) under a "Cancelled" section so they can message
+ * everyone who booked. Bound to a specific gameId via `.bind(null, gameId)`
+ * where it's used as a form action.
+ */
+export async function cancelGameAction(gameId: string): Promise<void> {
+  await requireAdmin();
+  await cancelGame(gameId);
+  revalidatePath("/games");
+  revalidatePath("/admin");
 }
