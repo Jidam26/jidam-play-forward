@@ -78,18 +78,28 @@ export type BookingWithGame = Booking & {
   time: string;
   venue: string;
   price_aed: number;
+  payment_link: string | null;
 };
 
 export async function listBookingsForUser(userId: string): Promise<BookingWithGame[]> {
   await ensureDb();
   const { rows } = await getPool().query<BookingWithGame>(
-    `SELECT b.*, g.sport, g.date, g.time, g.venue, g.price_aed
+    `SELECT b.*, g.sport, g.date, g.time, g.venue, g.price_aed, g.payment_link
      FROM bookings b JOIN games g ON g.id = b.game_id
      WHERE b.user_id = $1
      ORDER BY g.date ASC, g.time ASC`,
     [userId]
   );
   return rows;
+}
+
+/** Admin confirms a payment (e.g. after reviewing a WhatsApp screenshot). */
+export async function markBookingPaid(bookingId: string, amountPaid: number): Promise<void> {
+  await ensureDb();
+  await getPool().query(
+    `UPDATE bookings SET payment_status = 'paid', amount_paid = $2 WHERE id = $1`,
+    [bookingId, amountPaid]
+  );
 }
 
 export type Attendee = {

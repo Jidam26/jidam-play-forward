@@ -14,7 +14,7 @@ export default async function SignUpPage() {
       <Link href="/">
         <Logo />
       </Link>
-      <h1 className="mt-6 text-2xl font-bold text-navy">Create your account</h1>
+      <h1 className="mt-6 text-2xl font-extrabold text-navy">Create your account</h1>
       <p className="mt-1 text-sm text-navy/60">Join the community and start booking games.</p>
 
       <div className="mt-8">

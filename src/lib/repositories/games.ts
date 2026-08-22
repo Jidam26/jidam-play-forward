@@ -12,6 +12,7 @@ export type Game = {
   price_aed: number;
   total_spots: number;
   spots_filled: number;
+  payment_link: string | null;
   created_at: string;
 };
 
@@ -46,15 +47,25 @@ export type CreateGameInput = {
   venue: string;
   price_aed: number;
   total_spots: number;
+  payment_link?: string | null;
 };
 
 export async function createGame(input: CreateGameInput): Promise<Game> {
   await ensureDb();
   const id = randomUUID();
   const { rows } = await getPool().query<Game>(
-    `INSERT INTO games (id, sport, date, time, venue, price_aed, total_spots, spots_filled)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 0) RETURNING *`,
-    [id, input.sport, input.date, input.time, input.venue.trim(), input.price_aed, input.total_spots]
+    `INSERT INTO games (id, sport, date, time, venue, price_aed, total_spots, spots_filled, payment_link)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8) RETURNING *`,
+    [
+      id,
+      input.sport,
+      input.date,
+      input.time,
+      input.venue.trim(),
+      input.price_aed,
+      input.total_spots,
+      input.payment_link?.trim() || null,
+    ]
   );
   return rows[0];
 }

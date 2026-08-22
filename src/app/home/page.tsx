@@ -9,7 +9,7 @@ export default async function AboutPage() {
     <>
       <NavBar session={session} />
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-10">
-        <h1 className="text-2xl font-bold text-navy">About Jidam</h1>
+        <h1 className="text-2xl font-extrabold text-navy">About Jidam</h1>
         <p className="mt-3 max-w-xl text-navy/70">
           Jidam is a multi-sport community in Abu Dhabi. We bring people together to play, regardless
           of skill level — book a spot, show up, and play forward.

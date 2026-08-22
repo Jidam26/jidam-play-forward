@@ -9,7 +9,7 @@ export default async function NewGamePage() {
     <>
       <NavBar session={session} />
       <main className="mx-auto w-full max-w-lg flex-1 px-4 py-10">
-        <h1 className="text-2xl font-bold text-navy">Publish a Game</h1>
+        <h1 className="text-2xl font-extrabold text-navy">Publish a Game</h1>
         <p className="mt-1 text-sm text-navy/60">This will appear immediately on the public Upcoming Games page.</p>
         <div className="mt-6">
           <PublishGameForm />

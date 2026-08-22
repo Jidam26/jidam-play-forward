@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/session";
 import { listUpcomingGames, type Game } from "@/lib/repositories/games";
 import { listAttendeesForGame, type Attendee } from "@/lib/repositories/bookings";
+import { markPaidAction } from "@/lib/actions/bookings";
 import { NavBar } from "@/components/NavBar";
 import { SportBadge } from "@/components/SportBadge";
 
@@ -22,7 +23,7 @@ export default async function AdminDashboardPage() {
       <NavBar session={session} />
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-10">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-navy">Admin Dashboard</h1>
+          <h1 className="text-2xl font-extrabold text-navy">Admin Dashboard</h1>
           <Link
             href="/admin/games/new"
             className="rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-navy hover:bg-gold-light"
@@ -76,15 +77,27 @@ export default async function AdminDashboardPage() {
                               <td className="py-2 pr-4 text-navy/70">{a.email}</td>
                               <td className="py-2 pr-4 text-navy/70">{a.phone}</td>
                               <td className="py-2">
-                                <span
-                                  className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                                    a.payment_status === "paid"
-                                      ? "bg-green-100 text-green-800"
-                                      : "bg-gold/15 text-navy"
-                                  }`}
-                                >
-                                  {a.payment_status === "paid" ? "Paid" : "Reserved"}
-                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                      a.payment_status === "paid"
+                                        ? "bg-green-100 text-green-800"
+                                        : "bg-gold/15 text-navy"
+                                    }`}
+                                  >
+                                    {a.payment_status === "paid" ? "Paid" : "Reserved"}
+                                  </span>
+                                  {a.payment_status !== "paid" && (
+                                    <form action={markPaidAction.bind(null, a.booking_id, game.price_aed)}>
+                                      <button
+                                        type="submit"
+                                        className="rounded-full border border-navy/20 px-2 py-0.5 text-xs font-semibold text-navy hover:bg-navy/5"
+                                      >
+                                        Mark as Paid
+                                      </button>
+                                    </form>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           ))}

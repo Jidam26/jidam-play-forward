@@ -13,7 +13,7 @@ export default async function GamesPage() {
     <>
       <NavBar session={session} />
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-10">
-        <h1 className="text-2xl font-bold text-navy">Upcoming Games</h1>
+        <h1 className="text-2xl font-extrabold text-navy">Upcoming Games</h1>
         <p className="mt-1 text-sm text-navy/60">Reserve your spot before it fills up.</p>
 
         {games.length === 0 ? (

@@ -33,7 +33,13 @@ export function GameCard({ game, alreadyBooked }: { game: Game; alreadyBooked: b
       </div>
 
       <div className="mt-4">
-        <ReserveForm gameId={game.id} isFull={isFull} alreadyBooked={alreadyBooked} />
+        <ReserveForm
+          gameId={game.id}
+          isFull={isFull}
+          alreadyBooked={alreadyBooked}
+          paymentLink={game.payment_link}
+          gameLabel={`${game.sport} on ${formatDate(game.date)}`}
+        />
       </div>
     </div>
   );

@@ -1,8 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireSession } from "@/lib/session";
-import { reserveSpot } from "@/lib/repositories/bookings";
+import { requireAdmin, requireSession } from "@/lib/session";
+import { markBookingPaid, reserveSpot } from "@/lib/repositories/bookings";
 
 export type ReserveState = { error?: string; success?: boolean };
 
@@ -28,4 +28,16 @@ export async function reserveSpotAction(_prevState: ReserveState, formData: Form
   revalidatePath("/bookings");
   revalidatePath("/admin");
   return { success: true };
+}
+
+/**
+ * Admin-only: confirm a booking as paid after reviewing the member's
+ * WhatsApp payment screenshot (there's no automated payment webhook --
+ * see src/lib/config.ts). Bound to a specific bookingId/amount via
+ * `.bind(null, bookingId, amount)` where it's used as a form action.
+ */
+export async function markPaidAction(bookingId: string, amount: number): Promise<void> {
+  await requireAdmin();
+  await markBookingPaid(bookingId, amount);
+  revalidatePath("/admin");
 }

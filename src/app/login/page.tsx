@@ -14,7 +14,7 @@ export default async function LoginPage() {
       <Link href="/">
         <Logo />
       </Link>
-      <h1 className="mt-6 text-2xl font-bold text-navy">Welcome back</h1>
+      <h1 className="mt-6 text-2xl font-extrabold text-navy">Welcome back</h1>
       <p className="mt-1 text-sm text-navy/60">Sign in to see upcoming games.</p>
 
       <div className="mt-8">

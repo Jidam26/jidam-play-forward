@@ -79,6 +79,7 @@ async function migrate(client: PoolClient) {
       price_aed DOUBLE PRECISION NOT NULL,
       total_spots INTEGER NOT NULL,
       spots_filled INTEGER NOT NULL DEFAULT 0,
+      payment_link TEXT,
       created_at TEXT NOT NULL DEFAULT (now()::text)
     );
 
@@ -91,6 +92,12 @@ async function migrate(client: PoolClient) {
       booking_date TEXT NOT NULL DEFAULT (now()::text),
       UNIQUE (user_id, game_id)
     );
+
+    -- 'games' already existed in production before payment_link was added,
+    -- so CREATE TABLE IF NOT EXISTS above won't add it there. This backfills
+    -- the column on any database created before this change; it's a no-op
+    -- once the column already exists.
+    ALTER TABLE games ADD COLUMN IF NOT EXISTS payment_link TEXT;
   `);
 }
 

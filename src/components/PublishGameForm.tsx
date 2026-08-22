@@ -85,6 +85,21 @@ export function PublishGameForm() {
         </label>
       </div>
 
+      <label className="block">
+        <span className="mb-1 block text-sm font-medium text-navy">
+          Payment link <span className="font-normal text-navy/50">(optional, e.g. an ADCB Pace Pay link)</span>
+        </span>
+        <input
+          name="payment_link"
+          type="url"
+          placeholder="https://pay.adcb.com/..."
+          className="w-full rounded-lg border border-navy/20 bg-white px-3 py-2.5 text-base text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/30"
+        />
+        <span className="mt-1 block text-xs text-navy/50">
+          Shown to members after they reserve, with instructions to WhatsApp a payment screenshot for confirmation.
+        </span>
+      </label>
+
       {state.error && <p className="text-sm text-red-600">{state.error}</p>}
       <SubmitButton pendingText="Publishing...">Publish Game</SubmitButton>
     </form>

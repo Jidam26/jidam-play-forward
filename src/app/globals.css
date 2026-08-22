@@ -5,8 +5,9 @@
   --color-navy-light: #14315f;
   --color-gold: #b8860b;
   --color-gold-light: #d4a017;
-  --color-offwhite: #f7f5f0;
-  --color-ink: #1a1a1a;
+  --color-offwhite: #fafaf8;
+  --color-ink: #1c1f26;
+  --color-muted: #5b6472;
 
   --background: var(--color-offwhite);
   --foreground: var(--color-ink);
@@ -20,6 +21,7 @@
   --color-gold: var(--color-gold);
   --color-gold-light: var(--color-gold-light);
   --color-offwhite: var(--color-offwhite);
+  --color-muted: var(--color-muted);
   --font-sans: var(--font-inter);
 }
 

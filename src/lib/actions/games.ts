@@ -15,6 +15,7 @@ const publishGameSchema = z.object({
   venue: z.string().trim().min(2, "Please enter a venue."),
   price_aed: z.coerce.number().min(0, "Price can't be negative."),
   total_spots: z.coerce.number().int().min(1, "There must be at least 1 spot."),
+  payment_link: z.union([z.string().trim().url("Please enter a valid payment link."), z.literal("")]).optional(),
 });
 
 export async function publishGameAction(_prevState: FormState, formData: FormData): Promise<FormState> {
@@ -27,13 +28,14 @@ export async function publishGameAction(_prevState: FormState, formData: FormDat
     venue: formData.get("venue"),
     price_aed: formData.get("price_aed"),
     total_spots: formData.get("total_spots"),
+    payment_link: formData.get("payment_link"),
   });
 
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Please check the form and try again." };
   }
 
-  await createGame(parsed.data);
+  await createGame({ ...parsed.data, payment_link: parsed.data.payment_link || null });
 
   revalidatePath("/games");
   revalidatePath("/admin");
