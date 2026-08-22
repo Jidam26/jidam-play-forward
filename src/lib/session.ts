@@ -19,7 +19,7 @@ export type SessionUser = {
   id: string;
   name: string;
   email: string;
-  role: "member" | "admin";
+  role: "member" | "admin" | "boss";
 };
 
 type SessionPayload = SessionUser & { exp: number };
@@ -102,9 +102,16 @@ export async function requireSession(): Promise<SessionUser> {
   return session;
 }
 
-/** Require an admin; redirects non-admins away. For use in admin pages. */
+/** Require an admin (mini-admin or boss); redirects non-admins away. For use in admin pages. */
 export async function requireAdmin(): Promise<SessionUser> {
   const session = await requireSession();
-  if (session.role !== "admin") redirect("/games");
+  if (session.role !== "admin" && session.role !== "boss") redirect("/games");
+  return session;
+}
+
+/** Require the boss account specifically; redirects mini-admins back to the dashboard. */
+export async function requireBoss(): Promise<SessionUser> {
+  const session = await requireAdmin();
+  if (session.role !== "boss") redirect("/admin");
   return session;
 }

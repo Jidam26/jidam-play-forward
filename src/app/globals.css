@@ -60,6 +60,10 @@ body {
   from { opacity: 0; transform: translateY(24px); }
   to { opacity: 1; transform: translateY(0); }
 }
+@keyframes octagon-pulse {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .cinema-motion { animation: none !important; }

@@ -2,13 +2,15 @@ import { getPool, ensureDb } from "@/lib/db";
 import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
 
+export type Role = "member" | "admin" | "boss";
+
 export type User = {
   id: string;
   name: string;
   email: string;
   phone: string;
   password_hash: string;
-  role: "member" | "admin";
+  role: Role;
   created_at: string;
 };
 
@@ -59,6 +61,46 @@ export async function createUser(input: CreateUserInput): Promise<User> {
   }
 }
 
+/** Boss-only: create a mini-admin account with a temporary password they'll change themselves. */
+export async function createAdminAccount(input: CreateUserInput): Promise<User> {
+  await ensureDb();
+  const email = input.email.toLowerCase().trim();
+  if (await findUserByEmail(email)) {
+    throw new Error("EMAIL_TAKEN");
+  }
+
+  const id = randomUUID();
+  const passwordHash = bcrypt.hashSync(input.password, 10);
+
+  try {
+    const { rows } = await getPool().query<User>(
+      `INSERT INTO users (id, name, email, phone, password_hash, role) VALUES ($1, $2, $3, $4, $5, 'admin') RETURNING *`,
+      [id, input.name.trim(), email, input.phone.trim(), passwordHash]
+    );
+    return rows[0];
+  } catch (err) {
+    if ((err as { code?: string }).code === "23505") {
+      throw new Error("EMAIL_TAKEN");
+    }
+    throw err;
+  }
+}
+
+/** Boss-only: everyone with admin or boss access, boss first then admins by name. */
+export async function listAdmins(): Promise<User[]> {
+  await ensureDb();
+  const { rows } = await getPool().query<User>(
+    `SELECT * FROM users WHERE role IN ('admin', 'boss') ORDER BY (role = 'boss') DESC, name ASC`
+  );
+  return rows;
+}
+
 export function verifyPassword(user: User, password: string): boolean {
   return bcrypt.compareSync(password, user.password_hash);
+}
+
+export async function updatePassword(userId: string, newPassword: string): Promise<void> {
+  await ensureDb();
+  const passwordHash = bcrypt.hashSync(newPassword, 10);
+  await getPool().query("UPDATE users SET password_hash = $2 WHERE id = $1", [userId, passwordHash]);
 }

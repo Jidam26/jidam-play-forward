@@ -7,7 +7,7 @@ import { SignUpForm } from "@/components/AuthForm";
 
 export default async function SignUpPage() {
   const session = await getSession();
-  if (session) redirect(session.role === "admin" ? "/admin" : "/games");
+  if (session) redirect(session.role === "admin" || session.role === "boss" ? "/admin" : "/games");
 
   return (
     <main className="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center">

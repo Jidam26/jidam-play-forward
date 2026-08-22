@@ -3,33 +3,35 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { Logo } from "@/components/Logo";
 import { Footer } from "@/components/Footer";
-import { CinematicBackground } from "@/components/CinematicBackground";
+import { OctagonBackground } from "@/components/OctagonBackground";
 import { CinematicButton } from "@/components/CinematicButton";
 import { Reveal } from "@/components/Reveal";
 import { AnimatedCounter } from "@/components/AnimatedCounter";
+import { ImageCarousel } from "@/components/ImageCarousel";
 
 const SPORTS = [
   { emoji: "⚽", name: "Football", description: "Weekly 5-a-side and 7-a-side games across Abu Dhabi venues." },
   { emoji: "🏐", name: "Volleyball", description: "Indoor and beach volleyball sessions for all levels." },
-  { emoji: "🎾", name: "Padel", description: "On the roadmap — let us know if you'd like to see it sooner.", comingSoon: true },
-  { emoji: "🏀", name: "Basketball", description: "On the roadmap — let us know if you'd like to see it sooner.", comingSoon: true },
 ];
-
-const LIVE_SPORTS_COUNT = SPORTS.filter((s) => !s.comingSoon).length;
 
 export default async function LandingPage() {
   const session = await getSession();
-  if (session) redirect(session.role === "admin" ? "/admin" : "/games");
+  if (session) redirect(session.role === "admin" || session.role === "boss" ? "/admin" : "/games");
 
   return (
     <>
       <main className="flex-1">
-        {/* 1. Hero -- full-viewport cinematic backdrop. No real game photos/video
-            yet (see the note further down), so the drama comes from motion:
-            drifting gradient glow, a light particle field, and a parallax
-            nudge on scroll -- see CinematicBackground. */}
+        {/* 1. Hero -- full-viewport dark backdrop with a grid of octagon outlines
+            (like a soccer ball's panels flattened out), a random subset of
+            edges glowing gold on an independent loop -- see OctagonBackground.
+            No real game photos/video yet (see the note further down), so the
+            drama comes entirely from this line-work motion. */}
         <section className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[var(--cinema-void)] px-6 py-24 text-center">
-          <CinematicBackground />
+          <OctagonBackground />
+          <div
+            className="pointer-events-none absolute left-1/2 top-1/2 h-[70vw] w-[70vw] max-h-[700px] max-w-[700px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--cinema-gold)] opacity-[0.06] blur-3xl"
+            aria-hidden
+          />
 
           <div className="relative mx-auto max-w-2xl">
             <Logo size="lg" inverted glow />
@@ -68,7 +70,9 @@ export default async function LandingPage() {
           </Reveal>
         </section>
 
-        {/* 3. Our Sports */}
+        {/* 3. Our Sports -- each with an auto-advancing carousel underneath.
+            Slides are plain numbered placeholders for now; swap ImageCarousel
+            for real photos whenever they're ready. */}
         <section className="bg-navy/[0.03] px-6 py-16 sm:py-20">
           <div className="mx-auto max-w-4xl">
             <Reveal>
@@ -77,21 +81,13 @@ export default async function LandingPage() {
             <div className="mt-10 grid grid-cols-1 gap-5 sm:grid-cols-2">
               {SPORTS.map((sport, i) => (
                 <Reveal key={sport.name} delayMs={i * 80}>
-                  <div
-                    className={`h-full rounded-2xl border p-6 shadow-sm transition duration-300 hover:-translate-y-1 ${
-                      sport.comingSoon
-                        ? "border-navy/10 bg-navy/5"
-                        : "border-navy/10 bg-white hover:shadow-[0_12px_30px_-8px_rgba(184,134,11,0.35)]"
-                    }`}
-                  >
+                  <div className="h-full rounded-2xl border border-navy/10 bg-white p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-[0_12px_30px_-8px_rgba(184,134,11,0.35)]">
                     <span className="text-4xl" aria-hidden>
                       {sport.emoji}
                     </span>
                     <p className="mt-3 text-lg font-bold text-navy">{sport.name}</p>
-                    {sport.comingSoon && (
-                      <p className="text-xs font-semibold uppercase tracking-wide text-gold">Coming soon</p>
-                    )}
                     <p className="mt-2 text-sm text-muted">{sport.description}</p>
+                    <ImageCarousel label={sport.name} slideCount={5} />
                   </div>
                 </Reveal>
               ))}
@@ -111,7 +107,7 @@ export default async function LandingPage() {
           <Reveal className="relative mx-auto grid max-w-3xl grid-cols-1 gap-8 text-center sm:grid-cols-3">
             <div>
               <p className="text-3xl font-extrabold text-[var(--cinema-gold)] sm:text-4xl">
-                <AnimatedCounter value={LIVE_SPORTS_COUNT} />
+                <AnimatedCounter value={SPORTS.length} />
               </p>
               <p className="mt-1 text-sm font-medium text-offwhite/70">Sports live now</p>
             </div>

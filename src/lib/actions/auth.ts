@@ -61,7 +61,7 @@ export async function signInAction(_prevState: FormState, formData: FormData): P
   }
 
   await createSession({ id: user.id, name: user.name, email: user.email, role: user.role });
-  redirect(user.role === "admin" ? "/admin" : "/games");
+  redirect(user.role === "admin" || user.role === "boss" ? "/admin" : "/games");
 }
 
 export async function signOutAction(): Promise<void> {

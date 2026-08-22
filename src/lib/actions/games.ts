@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/session";
-import { cancelGame, createGame } from "@/lib/repositories/games";
+import { cancelGame, createGame, findGameById } from "@/lib/repositories/games";
+import { logActivity } from "@/lib/repositories/activity";
 
 export type FormState = { error?: string };
 
@@ -19,7 +20,7 @@ const publishGameSchema = z.object({
 });
 
 export async function publishGameAction(_prevState: FormState, formData: FormData): Promise<FormState> {
-  await requireAdmin();
+  const session = await requireAdmin();
 
   const parsed = publishGameSchema.safeParse({
     sport: formData.get("sport"),
@@ -35,7 +36,13 @@ export async function publishGameAction(_prevState: FormState, formData: FormDat
     return { error: parsed.error.issues[0]?.message ?? "Please check the form and try again." };
   }
 
-  await createGame({ ...parsed.data, payment_link: parsed.data.payment_link || null });
+  const game = await createGame({ ...parsed.data, payment_link: parsed.data.payment_link || null });
+  await logActivity(
+    session.id,
+    "game_published",
+    `Published ${game.sport} on ${game.date} at ${game.venue}`,
+    game.id
+  );
 
   revalidatePath("/games");
   revalidatePath("/admin");
@@ -50,8 +57,17 @@ export async function publishGameAction(_prevState: FormState, formData: FormDat
  * where it's used as a form action.
  */
 export async function cancelGameAction(gameId: string): Promise<void> {
-  await requireAdmin();
+  const session = await requireAdmin();
+  const game = await findGameById(gameId);
   await cancelGame(gameId);
+  if (game) {
+    await logActivity(
+      session.id,
+      "game_cancelled",
+      `Cancelled ${game.sport} on ${game.date} at ${game.venue}`,
+      game.id
+    );
+  }
   revalidatePath("/games");
   revalidatePath("/admin");
 }
