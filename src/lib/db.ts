@@ -11,7 +11,7 @@ import { randomUUID } from "node:crypto";
 // functions in src/lib/repositories/* are the only other files that talk to
 // storage -- pages and Server Actions never touch SQL directly.
 //
-// Connection string comes from Netlify DB (NETLIFY_DATABASE_URL, set
+// Connection string comes from Netlify DB (NETLIFY_DB_URL, set
 // automatically once a Netlify DB / Neon database is linked to the site) or
 // a plain DATABASE_URL for local/dev use against any Postgres instance.
 // ---------------------------------------------------------------------------
@@ -30,10 +30,10 @@ const globalForDb = globalThis as unknown as { __jidamPool?: Pool };
  */
 export function getPool(): Pool {
   if (!globalForDb.__jidamPool) {
-    const connectionString = process.env.NETLIFY_DATABASE_URL || process.env.DATABASE_URL;
+    const connectionString = process.env.NETLIFY_DB_URL || process.env.DATABASE_URL;
     if (!connectionString) {
       throw new Error(
-        "Missing NETLIFY_DATABASE_URL or DATABASE_URL. Link a Netlify DB to this site " +
+        "Missing NETLIFY_DB_URL or DATABASE_URL. Link a Netlify DB to this site " +
           "(`netlify db init`) or set DATABASE_URL to a Postgres connection string."
       );
     }
