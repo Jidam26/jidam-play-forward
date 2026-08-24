@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { Logo } from "@/components/Logo";
 import { Footer } from "@/components/Footer";
-import { OctagonBackground } from "@/components/OctagonBackground";
+import { HexBackground } from "@/components/HexBackground";
+import { FloatingFootball } from "@/components/FloatingFootball";
 import { CinematicButton } from "@/components/CinematicButton";
 import { Reveal } from "@/components/Reveal";
 import { AnimatedCounter } from "@/components/AnimatedCounter";
@@ -21,13 +22,15 @@ export default async function LandingPage() {
   return (
     <>
       <main className="flex-1">
-        {/* 1. Hero -- full-viewport dark backdrop with a grid of octagon outlines
-            (like a soccer ball's panels flattened out), a random subset of
-            edges glowing gold on an independent loop -- see OctagonBackground.
-            No real game photos/video yet (see the note further down), so the
-            drama comes entirely from this line-work motion. */}
+        {/* 1. Hero -- full-viewport dark backdrop with a connected grid of
+            hexagon panels (soccer-ball paneling, flattened out), pentagon
+            panels inset on a sparse subset of cells, and a random subset of
+            panels glowing softly from within on an independent loop -- see
+            HexBackground. No real game photos/video yet (see the note
+            further down), so the drama comes entirely from this paneling. */}
         <section className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[var(--cinema-void)] px-6 py-24 text-center">
-          <OctagonBackground />
+          <HexBackground />
+          <FloatingFootball />
           <div
             className="pointer-events-none absolute left-1/2 top-1/2 h-[70vw] w-[70vw] max-h-[700px] max-w-[700px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--cinema-gold)] opacity-[0.06] blur-3xl"
             aria-hidden

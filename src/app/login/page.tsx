@@ -21,6 +21,10 @@ export default async function LoginPage() {
         <SignInForm action={signInAction} />
       </div>
 
+      <Link href="/forgot-password" className="mt-4 text-sm text-navy/60 hover:text-gold">
+        Forgot password?
+      </Link>
+
       <p className="mt-6 text-sm text-navy/60">
         New to Jidam?{" "}
         <Link href="/signup" className="font-semibold text-navy hover:text-gold">

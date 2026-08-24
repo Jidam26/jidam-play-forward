@@ -125,6 +125,32 @@ export async function listAttendeesForGame(gameId: string): Promise<Attendee[]> 
 }
 
 /**
+ * Names of paid attendees for a batch of games, grouped by game -- used to
+ * show members "who's playing" once *they* have a paid spot in that game.
+ * Only names, never email/phone (those stay admin-only via
+ * listAttendeesForGame), and only paid bookings -- someone who's merely
+ * reserved but hasn't paid isn't shown as confirmed yet.
+ */
+export async function listPaidAttendeeNamesForGames(gameIds: string[]): Promise<Map<string, string[]>> {
+  await ensureDb();
+  const names = new Map<string, string[]>();
+  if (gameIds.length === 0) return names;
+  const { rows } = await getPool().query<{ game_id: string; name: string }>(
+    `SELECT b.game_id, u.name
+     FROM bookings b JOIN users u ON u.id = b.user_id
+     WHERE b.game_id = ANY($1) AND b.payment_status = 'paid'
+     ORDER BY u.name ASC`,
+    [gameIds]
+  );
+  for (const row of rows) {
+    const list = names.get(row.game_id) ?? [];
+    list.push(row.name);
+    names.set(row.game_id, list);
+  }
+  return names;
+}
+
+/**
  * Actual revenue collected per game (sum of confirmed-paid bookings only --
  * not spots_filled * price, which would count unpaid "reserved" spots too).
  * Used for the Past Games profit/loss view.

@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin, requireSession } from "@/lib/session";
 import { markBookingPaid, reserveSpot } from "@/lib/repositories/bookings";
+import { findGameById } from "@/lib/repositories/games";
+import { sendEmail, bookingConfirmationEmail } from "@/lib/email";
 
 export type ReserveState = { error?: string; success?: boolean };
 
@@ -27,6 +29,15 @@ export async function reserveSpotAction(_prevState: ReserveState, formData: Form
   revalidatePath("/games");
   revalidatePath("/bookings");
   revalidatePath("/admin");
+
+  // Best-effort: a booking is confirmed the moment it's saved, whether or
+  // not the email actually goes out (sendEmail never throws).
+  const game = await findGameById(gameId);
+  if (game) {
+    const { subject, html } = bookingConfirmationEmail(game);
+    await sendEmail(session.email, subject, html);
+  }
+
   return { success: true };
 }
 

@@ -120,6 +120,18 @@ async function migrate(client: PoolClient) {
       created_at TEXT NOT NULL DEFAULT (now()::text)
     );
 
+    -- "Forgot password" tokens. The token itself is the primary key (a long
+    -- random string, unguessable), so looking one up doubles as validating
+    -- it exists. used_at is set the moment it's redeemed so a token can't
+    -- be replayed even within its expiry window.
+    CREATE TABLE IF NOT EXISTS password_resets (
+      token TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (now()::text)
+    );
+
     -- Columns added after initial release: CREATE TABLE IF NOT EXISTS above
     -- won't add them to a database that already has the table, so these
     -- backfill them explicitly. No-ops once the columns already exist.

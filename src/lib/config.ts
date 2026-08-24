@@ -13,3 +13,12 @@ export const PAYMENT_WHATSAPP_NUMBER = "971500000000"; // <-- PLACEHOLDER, repla
 export function paymentWhatsAppLink(message: string): string {
   return `https://wa.me/${PAYMENT_WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
 }
+
+/**
+ * The site's own public URL, for building links inside emails (password
+ * reset, etc). Netlify sets URL automatically for every deploy; falls back
+ * to localhost for `npm run dev`.
+ */
+export function getSiteUrl(): string {
+  return process.env.URL || "http://localhost:3000";
+}

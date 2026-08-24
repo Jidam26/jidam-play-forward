@@ -7,7 +7,16 @@ function formatDate(dateStr: string) {
   return date.toLocaleDateString("en-AE", { weekday: "short", day: "numeric", month: "short" });
 }
 
-export function GameCard({ game, alreadyBooked }: { game: Game; alreadyBooked: boolean }) {
+export function GameCard({
+  game,
+  alreadyBooked,
+  paidAttendeeNames,
+}: {
+  game: Game;
+  alreadyBooked: boolean;
+  /** Only passed once the current member has a paid spot in this game -- see games/page.tsx. */
+  paidAttendeeNames?: string[];
+}) {
   const isFull = game.spots_filled >= game.total_spots;
 
   return (
@@ -41,6 +50,13 @@ export function GameCard({ game, alreadyBooked }: { game: Game; alreadyBooked: b
           gameLabel={`${game.sport} on ${formatDate(game.date)}`}
         />
       </div>
+
+      {paidAttendeeNames && paidAttendeeNames.length > 0 && (
+        <div className="mt-4 border-t border-navy/10 pt-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-navy/50">Who&apos;s playing</p>
+          <p className="mt-1 text-sm text-navy/80">{paidAttendeeNames.join(", ")}</p>
+        </div>
+      )}
     </div>
   );
 }

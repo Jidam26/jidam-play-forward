@@ -1,13 +1,19 @@
 import { requireSession } from "@/lib/session";
 import { listUpcomingGames } from "@/lib/repositories/games";
-import { listBookingsForUser } from "@/lib/repositories/bookings";
+import { listBookingsForUser, listPaidAttendeeNamesForGames } from "@/lib/repositories/bookings";
 import { NavBar } from "@/components/NavBar";
 import { GameCard } from "@/components/GameCard";
 
 export default async function GamesPage() {
   const session = await requireSession();
   const games = await listUpcomingGames();
-  const myBookedGameIds = new Set((await listBookingsForUser(session.id)).map((b) => b.game_id));
+  const myBookings = await listBookingsForUser(session.id);
+  const myBookedGameIds = new Set(myBookings.map((b) => b.game_id));
+
+  // Who's playing is only revealed once *you* have a paid spot in that
+  // game -- a browser (or an unpaid reservation) only ever sees the count.
+  const myPaidGameIds = myBookings.filter((b) => b.payment_status === "paid").map((b) => b.game_id);
+  const attendeeNamesByGame = await listPaidAttendeeNamesForGames(myPaidGameIds);
 
   return (
     <>
@@ -21,7 +27,12 @@ export default async function GamesPage() {
         ) : (
           <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
             {games.map((game) => (
-              <GameCard key={game.id} game={game} alreadyBooked={myBookedGameIds.has(game.id)} />
+              <GameCard
+                key={game.id}
+                game={game}
+                alreadyBooked={myBookedGameIds.has(game.id)}
+                paidAttendeeNames={attendeeNamesByGame.get(game.id)}
+              />
             ))}
           </div>
         )}
