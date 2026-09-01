@@ -18,7 +18,9 @@ export default async function ActivityLogPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-extrabold text-navy">Activity Log</h1>
-            <p className="mt-1 text-sm text-navy/60">Games published or cancelled by any admin.</p>
+            <p className="mt-1 text-sm text-navy/60">
+              Games published or cancelled, and payments confirmed, by any admin.
+            </p>
           </div>
           <Link href="/admin" className="text-sm font-semibold text-navy hover:text-gold">
             &larr; Back to Dashboard
@@ -36,10 +38,18 @@ export default async function ActivityLogPage() {
                     <span className="font-semibold text-navy">{e.admin_name}</span>{" "}
                     <span
                       className={`ml-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
-                        e.action === "game_cancelled" ? "bg-red-100 text-red-700" : "bg-green-100 text-green-800"
+                        e.action === "game_cancelled"
+                          ? "bg-red-100 text-red-700"
+                          : e.action === "payment_marked_paid"
+                            ? "bg-blue-100 text-blue-700"
+                            : "bg-green-100 text-green-800"
                       }`}
                     >
-                      {e.action === "game_cancelled" ? "Cancelled" : "Published"}
+                      {e.action === "game_cancelled"
+                        ? "Cancelled"
+                        : e.action === "payment_marked_paid"
+                          ? "Payment Confirmed"
+                          : "Published"}
                     </span>
                   </span>
                   <span className="text-xs text-navy/50">{formatDateTime(e.created_at)}</span>

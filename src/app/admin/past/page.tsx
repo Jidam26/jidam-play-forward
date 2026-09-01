@@ -8,13 +8,20 @@ import { ExpenseForm } from "@/components/ExpenseForm";
 import { DeleteExpenseButton } from "@/components/DeleteExpenseButton";
 import { NavBar } from "@/components/NavBar";
 
+function formatExpenseDate(dateStr: string) {
+  return new Date(`${dateStr}T00:00:00`).toLocaleDateString("en-AE", { day: "numeric", month: "short", year: "numeric" });
+}
+
 function ExpenseList({ expenses }: { expenses: Expense[] }) {
   if (expenses.length === 0) return <p className="text-xs text-navy/50">No expenses logged.</p>;
   return (
     <ul className="space-y-1">
       {expenses.map((e) => (
         <li key={e.id} className="flex items-center justify-between text-sm">
-          <span className="text-navy/80">{e.description}</span>
+          <span className="text-navy/80">
+            {e.description}
+            {e.date && <span className="ml-2 text-xs text-navy/40">{formatExpenseDate(e.date)}</span>}
+          </span>
           <span className="flex items-center gap-3">
             <span className="font-medium text-navy">AED {e.amount}</span>
             <DeleteExpenseButton expenseId={e.id} />
@@ -84,6 +91,14 @@ export default async function PastGamesPage() {
                   key={game.id}
                   game={game}
                   attendees={attendeesByGame.get(game.id) ?? []}
+                  actions={
+                    <Link
+                      href={`/admin/past/${game.id}/edit`}
+                      className="rounded-full border border-navy/20 px-3 py-1 text-xs font-semibold text-navy hover:bg-navy/5"
+                    >
+                      Edit
+                    </Link>
+                  }
                   footer={
                     <div className="mt-4 border-t border-navy/10 pt-4">
                       <h3 className="text-sm font-semibold text-navy">Expenses</h3>

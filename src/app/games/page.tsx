@@ -1,6 +1,7 @@
 import { requireSession } from "@/lib/session";
 import { listUpcomingGames } from "@/lib/repositories/games";
 import { listBookingsForUser, listPaidAttendeeNamesForGames } from "@/lib/repositories/bookings";
+import { listWaitlistForUser } from "@/lib/repositories/waitlist";
 import { NavBar } from "@/components/NavBar";
 import { GameCard } from "@/components/GameCard";
 
@@ -14,6 +15,9 @@ export default async function GamesPage() {
   // game -- a browser (or an unpaid reservation) only ever sees the count.
   const myPaidGameIds = myBookings.filter((b) => b.payment_status === "paid").map((b) => b.game_id);
   const attendeeNamesByGame = await listPaidAttendeeNamesForGames(myPaidGameIds);
+
+  const myWaitlistEntries = await listWaitlistForUser(session.id);
+  const myWaitlistPositionByGame = new Map(myWaitlistEntries.map((w) => [w.game_id, w.position]));
 
   return (
     <>
@@ -32,6 +36,7 @@ export default async function GamesPage() {
                 game={game}
                 alreadyBooked={myBookedGameIds.has(game.id)}
                 paidAttendeeNames={attendeeNamesByGame.get(game.id)}
+                waitlistPosition={myWaitlistPositionByGame.get(game.id)}
               />
             ))}
           </div>

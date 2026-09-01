@@ -34,6 +34,16 @@ export function ExpenseForm({ gameId }: { gameId: string | null }) {
           className="w-full rounded-lg border border-navy/20 bg-white px-2.5 py-2 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/30"
         />
       </label>
+      <label className="w-36">
+        <span className="mb-1 block text-xs font-medium text-navy/70">
+          Date <span className="font-normal text-navy/40">(optional)</span>
+        </span>
+        <input
+          name="date"
+          type="date"
+          className="w-full rounded-lg border border-navy/20 bg-white px-2.5 py-2 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/30"
+        />
+      </label>
       <SubmitButton pendingText="Adding..." className="w-auto px-4 py-2 text-sm">
         Add Expense
       </SubmitButton>

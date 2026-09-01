@@ -6,6 +6,8 @@ export type Expense = {
   game_id: string | null;
   description: string;
   amount: number;
+  /** Optional -- when the expense was actually incurred, if the admin backdated it. */
+  date: string | null;
   created_at: string;
 };
 
@@ -13,14 +15,15 @@ export type CreateExpenseInput = {
   game_id: string | null;
   description: string;
   amount: number;
+  date?: string | null;
 };
 
 export async function createExpense(input: CreateExpenseInput): Promise<Expense> {
   await ensureDb();
   const id = randomUUID();
   const { rows } = await getPool().query<Expense>(
-    `INSERT INTO expenses (id, game_id, description, amount) VALUES ($1, $2, $3, $4) RETURNING *`,
-    [id, input.game_id, input.description.trim(), input.amount]
+    `INSERT INTO expenses (id, game_id, description, amount, date) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [id, input.game_id, input.description.trim(), input.amount, input.date || null]
   );
   return rows[0];
 }

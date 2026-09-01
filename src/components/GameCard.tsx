@@ -11,11 +11,14 @@ export function GameCard({
   game,
   alreadyBooked,
   paidAttendeeNames,
+  waitlistPosition,
 }: {
   game: Game;
   alreadyBooked: boolean;
   /** Only passed once the current member has a paid spot in this game -- see games/page.tsx. */
   paidAttendeeNames?: string[];
+  /** 1-indexed queue position if the current member is on this game's waitlist. */
+  waitlistPosition?: number;
 }) {
   const isFull = game.spots_filled >= game.total_spots;
 
@@ -48,6 +51,7 @@ export function GameCard({
           alreadyBooked={alreadyBooked}
           paymentLink={game.payment_link}
           gameLabel={`${game.sport} on ${formatDate(game.date)}`}
+          waitlistPosition={waitlistPosition}
         />
       </div>
 

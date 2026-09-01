@@ -31,7 +31,7 @@ export function AdminGameCard({
     game.imported_revenue ?? attendees.reduce((sum, a) => sum + (a.payment_status === "paid" ? a.amount_paid : 0), 0);
 
   return (
-    <div className="rounded-2xl border border-navy/10 bg-white p-5 shadow-sm">
+    <div id={`game-${game.id}`} className="scroll-mt-20 rounded-2xl border border-navy/10 bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
@@ -85,7 +85,16 @@ export function AdminGameCard({
                         {a.payment_status === "paid" ? "Paid" : "Reserved"}
                       </span>
                       {a.payment_status !== "paid" && (
-                        <form action={markPaidAction.bind(null, a.booking_id, game.price_aed)}>
+                        <form
+                          action={markPaidAction.bind(
+                            null,
+                            a.booking_id,
+                            game.price_aed,
+                            a.name,
+                            `${game.sport} on ${formatDate(game.date)}`,
+                            game.id
+                          )}
+                        >
                           <button
                             type="submit"
                             className="rounded-full border border-navy/20 px-2 py-0.5 text-xs font-semibold text-navy hover:bg-navy/5"

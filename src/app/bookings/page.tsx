@@ -1,8 +1,11 @@
 import { requireSession } from "@/lib/session";
 import { listBookingsForUser } from "@/lib/repositories/bookings";
+import { listWaitlistForUser } from "@/lib/repositories/waitlist";
 import { NavBar } from "@/components/NavBar";
 import { SportBadge } from "@/components/SportBadge";
 import { PaymentInstructions } from "@/components/PaymentInstructions";
+import { CancelBookingButton } from "@/components/CancelBookingButton";
+import { leaveWaitlistAction } from "@/lib/actions/bookings";
 
 function formatDate(dateStr: string) {
   const date = new Date(`${dateStr}T00:00:00`);
@@ -12,6 +15,7 @@ function formatDate(dateStr: string) {
 export default async function BookingsPage() {
   const session = await requireSession();
   const bookings = await listBookingsForUser(session.id);
+  const waitlistEntries = await listWaitlistForUser(session.id);
 
   return (
     <>
@@ -27,7 +31,7 @@ export default async function BookingsPage() {
           <div className="mt-6 space-y-3">
             {bookings.map((b) => (
               <div key={b.id} className="rounded-2xl border border-navy/10 bg-white p-5 shadow-sm">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <SportBadge sport={b.sport} />
                     <p className="mt-2 font-bold text-navy">
@@ -35,13 +39,16 @@ export default async function BookingsPage() {
                     </p>
                     <p className="text-sm text-navy/70">{b.venue}</p>
                   </div>
-                  <span
-                    className={`inline-block w-fit rounded-full px-3 py-1 text-xs font-semibold ${
-                      b.payment_status === "paid" ? "bg-green-100 text-green-800" : "bg-gold/15 text-navy"
-                    }`}
-                  >
-                    {b.payment_status === "paid" ? "Paid" : "Reserved · payment pending"}
-                  </span>
+                  <div className="flex flex-col items-start gap-2 sm:items-end">
+                    <span
+                      className={`inline-block w-fit rounded-full px-3 py-1 text-xs font-semibold ${
+                        b.payment_status === "paid" ? "bg-green-100 text-green-800" : "bg-gold/15 text-navy"
+                      }`}
+                    >
+                      {b.payment_status === "paid" ? "Paid" : "Reserved · payment pending"}
+                    </span>
+                    <CancelBookingButton bookingId={b.id} />
+                  </div>
                 </div>
 
                 {b.payment_status !== "paid" && (
@@ -52,6 +59,38 @@ export default async function BookingsPage() {
               </div>
             ))}
           </div>
+        )}
+
+        {waitlistEntries.length > 0 && (
+          <>
+            <h2 className="mt-10 text-xl font-extrabold text-navy">My Waitlist</h2>
+            <div className="mt-4 space-y-3">
+              {waitlistEntries.map((w) => (
+                <div
+                  key={w.id}
+                  className="flex flex-col gap-3 rounded-2xl border border-navy/10 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div>
+                    <SportBadge sport={w.sport} />
+                    <p className="mt-2 font-bold text-navy">
+                      {formatDate(w.date)} &middot; {w.time}
+                    </p>
+                    <p className="text-sm text-navy/70">{w.venue}</p>
+                  </div>
+                  <div className="flex flex-col items-start gap-2 sm:items-end">
+                    <span className="inline-block w-fit rounded-full bg-gold/15 px-3 py-1 text-xs font-semibold text-navy">
+                      #{w.position} on waitlist
+                    </span>
+                    <form action={leaveWaitlistAction.bind(null, w.game_id)}>
+                      <button type="submit" className="text-xs font-semibold text-navy/50 hover:text-navy">
+                        Leave waitlist
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </main>
     </>

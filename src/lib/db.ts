@@ -110,7 +110,8 @@ async function migrate(client: PoolClient) {
       created_at TEXT NOT NULL DEFAULT (now()::text)
     );
 
-    -- Boss-only feed of admin actions (currently: games published/cancelled).
+    -- Boss-only feed of admin actions: games published/cancelled, and
+    -- bookings marked as paid.
     CREATE TABLE IF NOT EXISTS admin_activity (
       id TEXT PRIMARY KEY,
       admin_id TEXT NOT NULL REFERENCES users(id),
@@ -118,6 +119,18 @@ async function migrate(client: PoolClient) {
       game_id TEXT REFERENCES games(id) ON DELETE SET NULL,
       description TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (now()::text)
+    );
+
+    -- A game at capacity can take waitlist joins instead of bookings.
+    -- created_at ordering is the queue order (first to join, first
+    -- promoted) -- see cancelBooking in repositories/bookings.ts, which
+    -- auto-promotes the earliest entry the moment a spot frees up.
+    CREATE TABLE IF NOT EXISTS waitlist_entries (
+      id TEXT PRIMARY KEY,
+      game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT (now()::text),
+      UNIQUE (game_id, user_id)
     );
 
     -- "Forgot password" tokens. The token itself is the primary key (a long
@@ -138,6 +151,10 @@ async function migrate(client: PoolClient) {
     ALTER TABLE games ADD COLUMN IF NOT EXISTS payment_link TEXT;
     ALTER TABLE games ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
     ALTER TABLE games ADD COLUMN IF NOT EXISTS imported_revenue DOUBLE PRECISION;
+    -- Optional: when the expense was actually incurred, which can differ
+    -- from created_at (when it was logged into the app). Left blank if the
+    -- admin doesn't need to backdate it.
+    ALTER TABLE expenses ADD COLUMN IF NOT EXISTS date TEXT;
   `);
 
   // The 'role' CHECK constraint above only applies to a freshly created

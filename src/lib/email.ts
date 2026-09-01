@@ -82,6 +82,33 @@ export function passwordResetEmail(resetUrl: string): { subject: string; html: s
   };
 }
 
+export function waitlistPromotionEmail(params: {
+  sport: string;
+  date: string;
+  time: string;
+  venue: string;
+}): { subject: string; html: string } {
+  const formattedDate = new Date(`${params.date}T00:00:00`).toLocaleDateString("en-AE", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+  return {
+    subject: `A spot opened up! You're in for ${params.sport}`,
+    html: emailShell(`
+      <p>Good news — a spot opened up and you were next on the waitlist, so you're confirmed!</p>
+      <table style="width:100%; margin:16px 0; font-size:15px;">
+        <tr><td style="color:#5b6472; padding:4px 0;">Sport</td><td style="font-weight:600;">${params.sport}</td></tr>
+        <tr><td style="color:#5b6472; padding:4px 0;">Date</td><td style="font-weight:600;">${formattedDate}</td></tr>
+        <tr><td style="color:#5b6472; padding:4px 0;">Time</td><td style="font-weight:600;">${params.time}</td></tr>
+        <tr><td style="color:#5b6472; padding:4px 0;">Venue</td><td style="font-weight:600;">${params.venue}</td></tr>
+      </table>
+      <p style="color:#5b6472; font-size:14px;">You can view or manage your bookings any time under "My Bookings" on Jidam.</p>
+    `),
+  };
+}
+
 export function bookingConfirmationEmail(params: {
   sport: string;
   date: string;

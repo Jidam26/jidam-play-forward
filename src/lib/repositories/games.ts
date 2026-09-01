@@ -95,6 +95,46 @@ export async function createGame(input: CreateGameInput): Promise<Game> {
   return rows[0];
 }
 
+export type UpdateGameInput = {
+  sport: string;
+  date: string;
+  time: string;
+  venue: string;
+  price_aed: number;
+  total_spots: number;
+  /**
+   * How many actually played. A real, active game keeps this in sync with
+   * its booking rows automatically (see reserveSpot/cancelBooking) -- this
+   * is here so a *past* game with no real per-attendee data (e.g. one from
+   * before the booking system, or an imported historical game) can be
+   * corrected to reflect what actually happened.
+   */
+  spots_filled: number;
+  payment_link: string | null;
+  imported_revenue: number | null;
+};
+
+/** Admin-only: correct any of a game's details after the fact -- see UpdateGameInput. */
+export async function updateGame(id: string, input: UpdateGameInput): Promise<void> {
+  await ensureDb();
+  await getPool().query(
+    `UPDATE games SET sport=$2, date=$3, time=$4, venue=$5, price_aed=$6, total_spots=$7, spots_filled=$8, payment_link=$9, imported_revenue=$10
+     WHERE id = $1`,
+    [
+      id,
+      input.sport,
+      input.date,
+      input.time,
+      input.venue.trim(),
+      input.price_aed,
+      input.total_spots,
+      input.spots_filled,
+      input.payment_link?.trim() || null,
+      input.imported_revenue,
+    ]
+  );
+}
+
 /**
  * Cancel a game (soft-delete). It disappears from the public/member games
  * list immediately but stays visible to admins -- along with its attendee
