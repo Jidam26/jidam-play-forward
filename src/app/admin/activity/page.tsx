@@ -1,11 +1,18 @@
 import Link from "next/link";
 import { requireBoss } from "@/lib/session";
-import { listActivity } from "@/lib/repositories/activity";
+import { listActivity, type ActivityEntry } from "@/lib/repositories/activity";
 import { NavBar } from "@/components/NavBar";
 
 function formatDateTime(iso: string) {
   return new Date(iso).toLocaleString("en-AE", { dateStyle: "medium", timeStyle: "short" });
 }
+
+const ACTION_BADGES: Record<ActivityEntry["action"], { label: string; className: string }> = {
+  game_published: { label: "Published", className: "bg-green-100 text-green-800" },
+  game_cancelled: { label: "Cancelled", className: "bg-red-100 text-red-700" },
+  payment_marked_paid: { label: "Payment Confirmed", className: "bg-blue-100 text-blue-700" },
+  player_deleted: { label: "Player Deleted", className: "bg-orange-100 text-orange-700" },
+};
 
 export default async function ActivityLogPage() {
   const session = await requireBoss();
@@ -19,7 +26,7 @@ export default async function ActivityLogPage() {
           <div>
             <h1 className="text-2xl font-extrabold text-navy">Activity Log</h1>
             <p className="mt-1 text-sm text-navy/60">
-              Games published or cancelled, and payments confirmed, by any admin.
+              Games published or cancelled, payments confirmed, and players deleted, by any admin.
             </p>
           </div>
           <Link href="/admin" className="text-sm font-semibold text-navy hover:text-gold">
@@ -31,32 +38,23 @@ export default async function ActivityLogPage() {
           <p className="mt-10 text-center text-navy/50">No admin activity yet.</p>
         ) : (
           <div className="mt-6 space-y-2">
-            {entries.map((e) => (
-              <div key={e.id} className="rounded-lg border border-navy/10 bg-white px-4 py-3 text-sm shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span>
-                    <span className="font-semibold text-navy">{e.admin_name}</span>{" "}
-                    <span
-                      className={`ml-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
-                        e.action === "game_cancelled"
-                          ? "bg-red-100 text-red-700"
-                          : e.action === "payment_marked_paid"
-                            ? "bg-blue-100 text-blue-700"
-                            : "bg-green-100 text-green-800"
-                      }`}
-                    >
-                      {e.action === "game_cancelled"
-                        ? "Cancelled"
-                        : e.action === "payment_marked_paid"
-                          ? "Payment Confirmed"
-                          : "Published"}
+            {entries.map((e) => {
+              const badge = ACTION_BADGES[e.action];
+              return (
+                <div key={e.id} className="rounded-lg border border-navy/10 bg-white px-4 py-3 text-sm shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span>
+                      <span className="font-semibold text-navy">{e.admin_name}</span>{" "}
+                      <span className={`ml-1 rounded-full px-2 py-0.5 text-xs font-semibold ${badge.className}`}>
+                        {badge.label}
+                      </span>
                     </span>
-                  </span>
-                  <span className="text-xs text-navy/50">{formatDateTime(e.created_at)}</span>
+                    <span className="text-xs text-navy/50">{formatDateTime(e.created_at)}</span>
+                  </div>
+                  <p className="mt-1 text-navy/70">{e.description}</p>
                 </div>
-                <p className="mt-1 text-navy/70">{e.description}</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </main>

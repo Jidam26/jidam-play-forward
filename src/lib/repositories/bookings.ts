@@ -8,6 +8,7 @@ export type Booking = {
   game_id: string;
   payment_status: "reserved" | "paid";
   amount_paid: number;
+  paid_via_credit: boolean;
   booking_date: string;
 };
 
@@ -59,6 +60,77 @@ export async function reserveSpot(userId: string, gameId: string): Promise<Reser
     const id = randomUUID();
     const bookingRes = await client.query<Booking>(
       `INSERT INTO bookings (id, user_id, game_id, payment_status, amount_paid) VALUES ($1, $2, $3, 'reserved', 0) RETURNING *`,
+      [id, userId, gameId]
+    );
+
+    await client.query("COMMIT");
+    return { ok: true, booking: bookingRes.rows[0] };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export type ReserveWithCreditResult =
+  | { ok: true; booking: Booking }
+  | { ok: false; reason: "GAME_NOT_FOUND" | "GAME_FULL" | "ALREADY_BOOKED" | "NO_CREDIT" };
+
+/**
+ * Reserve a spot using a game credit instead of the manual payment-link
+ * flow -- the booking is paid instantly (see paid_via_credit on the
+ * bookings table) since the member already paid when they bought the plan.
+ * Locks the game row first (same as reserveSpot) and the member's
+ * credit_balances row, so two concurrent bookings against a 1-credit
+ * balance can't both succeed.
+ */
+export async function reserveSpotWithCredit(userId: string, gameId: string): Promise<ReserveWithCreditResult> {
+  await ensureDb();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+
+    const gameRes = await client.query<Game>("SELECT * FROM games WHERE id = $1 FOR UPDATE", [gameId]);
+    const game = gameRes.rows[0];
+    if (!game) {
+      await client.query("ROLLBACK");
+      return { ok: false, reason: "GAME_NOT_FOUND" };
+    }
+
+    const existingRes = await client.query("SELECT id FROM bookings WHERE user_id = $1 AND game_id = $2", [userId, gameId]);
+    if ((existingRes.rowCount ?? 0) > 0) {
+      await client.query("ROLLBACK");
+      return { ok: false, reason: "ALREADY_BOOKED" };
+    }
+
+    const creditRes = await client.query<{ balance: number }>(
+      "SELECT balance FROM credit_balances WHERE user_id = $1 AND sport = $2 FOR UPDATE",
+      [userId, game.sport]
+    );
+    if (!creditRes.rows[0] || creditRes.rows[0].balance < 1) {
+      await client.query("ROLLBACK");
+      return { ok: false, reason: "NO_CREDIT" };
+    }
+
+    const updateRes = await client.query(
+      "UPDATE games SET spots_filled = spots_filled + 1 WHERE id = $1 AND spots_filled < total_spots",
+      [gameId]
+    );
+    if (updateRes.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return { ok: false, reason: "GAME_FULL" };
+    }
+
+    await client.query("UPDATE credit_balances SET balance = balance - 1 WHERE user_id = $1 AND sport = $2", [
+      userId,
+      game.sport,
+    ]);
+
+    const id = randomUUID();
+    const bookingRes = await client.query<Booking>(
+      `INSERT INTO bookings (id, user_id, game_id, payment_status, amount_paid, paid_via_credit)
+       VALUES ($1, $2, $3, 'paid', 0, true) RETURNING *`,
       [id, userId, gameId]
     );
 
@@ -155,6 +227,74 @@ export async function cancelBooking(userId: string, bookingId: string): Promise<
   }
 }
 
+export type DeleteAttendeeResult =
+  | { ok: true; promoted: PromotedFromWaitlist | null }
+  | { ok: false; reason: "BOOKING_NOT_FOUND" };
+
+/**
+ * Admin-only: permanently remove one attendee's booking from a game --
+ * unlike cancelBooking, there's no ownership check (an admin can remove
+ * anyone). Same waitlist auto-promotion as a self-cancellation on a live
+ * game; on a past game there's simply nothing left on its waitlist to
+ * promote, so this is safe to call on either.
+ */
+export async function deleteAttendee(bookingId: string): Promise<DeleteAttendeeResult> {
+  await ensureDb();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+
+    const bookingRes = await client.query<Booking>("SELECT * FROM bookings WHERE id = $1 FOR UPDATE", [bookingId]);
+    const booking = bookingRes.rows[0];
+    if (!booking) {
+      await client.query("ROLLBACK");
+      return { ok: false, reason: "BOOKING_NOT_FOUND" };
+    }
+
+    const gameRes = await client.query<Game>("SELECT * FROM games WHERE id = $1 FOR UPDATE", [booking.game_id]);
+    const game = gameRes.rows[0];
+    await client.query("DELETE FROM bookings WHERE id = $1", [bookingId]);
+    await client.query("UPDATE games SET spots_filled = spots_filled - 1 WHERE id = $1", [booking.game_id]);
+
+    const nextRes = await client.query<{ id: string; user_id: string }>(
+      `SELECT id, user_id FROM waitlist_entries WHERE game_id = $1 ORDER BY created_at ASC LIMIT 1`,
+      [booking.game_id]
+    );
+    const next = nextRes.rows[0];
+
+    let promoted: PromotedFromWaitlist | null = null;
+    if (next && game) {
+      await client.query("DELETE FROM waitlist_entries WHERE id = $1", [next.id]);
+      await client.query(
+        `INSERT INTO bookings (id, user_id, game_id, payment_status, amount_paid) VALUES ($1, $2, $3, 'reserved', 0)`,
+        [randomUUID(), next.user_id, booking.game_id]
+      );
+      await client.query("UPDATE games SET spots_filled = spots_filled + 1 WHERE id = $1", [booking.game_id]);
+      const userRes = await client.query<{ name: string; email: string }>("SELECT name, email FROM users WHERE id = $1", [
+        next.user_id,
+      ]);
+      if (userRes.rows[0]) {
+        promoted = {
+          userId: next.user_id,
+          ...userRes.rows[0],
+          sport: game.sport,
+          date: game.date,
+          time: game.time,
+          venue: game.venue,
+        };
+      }
+    }
+
+    await client.query("COMMIT");
+    return { ok: true, promoted };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export type BookingWithGame = Booking & {
   sport: string;
   date: string;
@@ -192,13 +332,14 @@ export type Attendee = {
   phone: string;
   payment_status: "reserved" | "paid";
   amount_paid: number;
+  paid_via_credit: boolean;
   booking_date: string;
 };
 
 export async function listAttendeesForGame(gameId: string): Promise<Attendee[]> {
   await ensureDb();
   const { rows } = await getPool().query<Attendee>(
-    `SELECT b.id as booking_id, u.name, u.email, u.phone, b.payment_status, b.amount_paid, b.booking_date
+    `SELECT b.id as booking_id, u.name, u.email, u.phone, b.payment_status, b.amount_paid, b.paid_via_credit, b.booking_date
      FROM bookings b JOIN users u ON u.id = b.user_id
      WHERE b.game_id = $1
      ORDER BY b.booking_date ASC`,

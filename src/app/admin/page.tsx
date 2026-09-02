@@ -2,8 +2,10 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/session";
 import { listUpcomingGames, listCancelledGames, type Game } from "@/lib/repositories/games";
 import { listAttendeesForGame, type Attendee } from "@/lib/repositories/bookings";
+import { listPendingPlanPurchases } from "@/lib/repositories/planPurchases";
 import { AdminGameCard } from "@/components/AdminGameCard";
 import { CancelGameButton } from "@/components/CancelGameButton";
+import { PendingPlanPurchases } from "@/components/PendingPlanPurchases";
 import { NavBar } from "@/components/NavBar";
 
 async function attendeesFor(games: Game[]): Promise<Map<string, Attendee[]>> {
@@ -12,7 +14,11 @@ async function attendeesFor(games: Game[]): Promise<Map<string, Attendee[]>> {
 
 export default async function AdminDashboardPage() {
   const session = await requireAdmin();
-  const [liveGames, cancelledGames] = await Promise.all([listUpcomingGames(), listCancelledGames()]);
+  const [liveGames, cancelledGames, pendingPlanPurchases] = await Promise.all([
+    listUpcomingGames(),
+    listCancelledGames(),
+    listPendingPlanPurchases(),
+  ]);
   const [liveAttendees, cancelledAttendees] = await Promise.all([attendeesFor(liveGames), attendeesFor(cancelledGames)]);
 
   return (
@@ -21,7 +27,13 @@ export default async function AdminDashboardPage() {
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-10">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-extrabold text-navy">Admin Dashboard</h1>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/admin/plans"
+              className="rounded-lg border border-navy/20 px-4 py-2 text-sm font-semibold text-navy hover:bg-navy/5"
+            >
+              Plans
+            </Link>
             <Link
               href="/admin/past"
               className="rounded-lg border border-navy/20 px-4 py-2 text-sm font-semibold text-navy hover:bg-navy/5"
@@ -36,6 +48,8 @@ export default async function AdminDashboardPage() {
             </Link>
           </div>
         </div>
+
+        <PendingPlanPurchases purchases={pendingPlanPurchases} />
 
         <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-navy/50">Live</h2>
         {liveGames.length === 0 ? (

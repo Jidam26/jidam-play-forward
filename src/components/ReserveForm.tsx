@@ -3,15 +3,18 @@
 import { useActionState } from "react";
 import {
   reserveSpotAction,
+  reserveSpotWithCreditAction,
   joinWaitlistAction,
   leaveWaitlistAction,
   type ReserveState,
+  type ReserveWithCreditState,
   type WaitlistState,
 } from "@/lib/actions/bookings";
 import { SubmitButton } from "@/components/SubmitButton";
 import { PaymentInstructions } from "@/components/PaymentInstructions";
 
 const initialReserveState: ReserveState = {};
+const initialCreditState: ReserveWithCreditState = {};
 const initialWaitlistState: WaitlistState = {};
 
 export function ReserveForm({
@@ -21,25 +24,29 @@ export function ReserveForm({
   paymentLink,
   gameLabel,
   waitlistPosition,
+  creditBalance,
 }: {
   gameId: string;
   isFull: boolean;
   alreadyBooked: boolean;
   paymentLink: string | null;
   gameLabel: string;
-  /** 1-indexed queue position if the current member is on this game's waitlist -- server-refreshed prop, the source of truth for whether they're on it. */
+  /** 1-indexed queue position if the current member is on this game's waitlist -- server-refreshed prop, the source of whether they're on it. */
   waitlistPosition?: number;
+  /** Remaining game credits the member has for this sport -- see games/page.tsx. */
+  creditBalance?: number;
 }) {
-  // Both hooks are always called (rules of hooks) -- which one's result is
-  // actually rendered depends on the game's state below. Neither state's
-  // `success` flag is used to decide *whether* the member is booked/
+  // All three hooks are always called (rules of hooks) -- which one's
+  // result is actually rendered depends on the game's state below. None of
+  // these states' `success` flags decide *whether* the member is booked/
   // waitlisted (that always comes from the server-refreshed props above,
   // which revalidatePath keeps in sync) -- only to surface a submission
   // error inline.
   const [reserveState, reserveFormAction] = useActionState(reserveSpotAction, initialReserveState);
+  const [creditState, creditFormAction] = useActionState(reserveSpotWithCreditAction, initialCreditState);
   const [waitlistState, waitlistFormAction] = useActionState(joinWaitlistAction, initialWaitlistState);
 
-  if (alreadyBooked || reserveState.success) {
+  if (alreadyBooked || reserveState.success || creditState.success) {
     return (
       <div className="space-y-3">
         <p className="rounded-lg bg-navy/5 px-4 py-3 text-center text-sm font-semibold text-navy">
@@ -79,10 +86,24 @@ export function ReserveForm({
   }
 
   return (
-    <form action={reserveFormAction} className="space-y-2">
-      <input type="hidden" name="gameId" value={gameId} />
-      <SubmitButton pendingText="Reserving...">Reserve Spot</SubmitButton>
-      {reserveState.error && <p className="text-center text-sm text-red-600">{reserveState.error}</p>}
-    </form>
+    <div className="space-y-2">
+      <form action={reserveFormAction} className="space-y-2">
+        <input type="hidden" name="gameId" value={gameId} />
+        <SubmitButton pendingText="Reserving...">Reserve Spot</SubmitButton>
+        {reserveState.error && <p className="text-center text-sm text-red-600">{reserveState.error}</p>}
+      </form>
+      {creditBalance !== undefined && creditBalance > 0 && (
+        <form action={creditFormAction} className="space-y-2">
+          <input type="hidden" name="gameId" value={gameId} />
+          <button
+            type="submit"
+            className="w-full rounded-lg border border-navy/20 px-4 py-2.5 text-sm font-semibold text-navy hover:bg-navy/5"
+          >
+            Use a Credit ({creditBalance} left)
+          </button>
+          {creditState.error && <p className="text-center text-sm text-red-600">{creditState.error}</p>}
+        </form>
+      )}
+    </div>
   );
 }

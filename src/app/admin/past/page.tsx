@@ -3,6 +3,8 @@ import { requireAdmin } from "@/lib/session";
 import { listPastGames } from "@/lib/repositories/games";
 import { listAttendeesForGame, totalRevenueByGame, type Attendee } from "@/lib/repositories/bookings";
 import { listExpensesForGame, listGeneralExpenses, type Expense } from "@/lib/repositories/expenses";
+import { listImportedAttendeesForGames } from "@/lib/repositories/importedAttendees";
+import { formatMoney } from "@/lib/money";
 import { AdminGameCard } from "@/components/AdminGameCard";
 import { ExpenseForm } from "@/components/ExpenseForm";
 import { DeleteExpenseButton } from "@/components/DeleteExpenseButton";
@@ -23,7 +25,7 @@ function ExpenseList({ expenses }: { expenses: Expense[] }) {
             {e.date && <span className="ml-2 text-xs text-navy/40">{formatExpenseDate(e.date)}</span>}
           </span>
           <span className="flex items-center gap-3">
-            <span className="font-medium text-navy">AED {e.amount}</span>
+            <span className="font-medium text-navy">AED {formatMoney(e.amount)}</span>
             <DeleteExpenseButton expenseId={e.id} />
           </span>
         </li>
@@ -37,10 +39,11 @@ export default async function PastGamesPage() {
   const games = await listPastGames();
   const gameIds = games.map((g) => g.id);
 
-  const [attendeesEntries, expensesEntries, revenueByGame] = await Promise.all([
+  const [attendeesEntries, expensesEntries, revenueByGame, importedAttendeesByGame] = await Promise.all([
     Promise.all(games.map(async (g): Promise<[string, Attendee[]]> => [g.id, await listAttendeesForGame(g.id)])),
     Promise.all(games.map(async (g): Promise<[string, Expense[]]> => [g.id, await listExpensesForGame(g.id)])),
     totalRevenueByGame(gameIds),
+    listImportedAttendeesForGames(gameIds),
   ]);
   const attendeesByGame = new Map(attendeesEntries);
   const expensesByGame = new Map(expensesEntries);
@@ -91,6 +94,7 @@ export default async function PastGamesPage() {
                   key={game.id}
                   game={game}
                   attendees={attendeesByGame.get(game.id) ?? []}
+                  importedAttendees={importedAttendeesByGame.get(game.id)}
                   actions={
                     <Link
                       href={`/admin/past/${game.id}/edit`}
@@ -106,9 +110,11 @@ export default async function PastGamesPage() {
                         <ExpenseList expenses={expenses} />
                       </div>
                       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-navy/5 px-3 py-2 text-sm">
-                        <span className="text-navy/70">Revenue AED {revenue} &minus; Expenses AED {expenseTotal}</span>
+                        <span className="text-navy/70">
+                          Revenue AED {formatMoney(revenue)} &minus; Expenses AED {formatMoney(expenseTotal)}
+                        </span>
                         <span className={`font-bold ${profit >= 0 ? "text-green-700" : "text-red-600"}`}>
-                          {profit >= 0 ? "Profit" : "Loss"}: AED {Math.abs(profit)}
+                          {profit >= 0 ? "Profit" : "Loss"}: AED {formatMoney(Math.abs(profit))}
                         </span>
                       </div>
                       <div className="mt-4">

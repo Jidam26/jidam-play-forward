@@ -21,6 +21,7 @@ export function NavBar({ session }: { session: SessionUser }) {
         { href: "/home", label: "About" },
         { href: "/games", label: "Games" },
         { href: "/bookings", label: "My Bookings" },
+        { href: "/plans", label: "Plans" },
       ];
 
   return (

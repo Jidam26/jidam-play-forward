@@ -2,6 +2,7 @@ import { requireSession } from "@/lib/session";
 import { listUpcomingGames } from "@/lib/repositories/games";
 import { listBookingsForUser, listPaidAttendeeNamesForGames } from "@/lib/repositories/bookings";
 import { listWaitlistForUser } from "@/lib/repositories/waitlist";
+import { getCreditBalances } from "@/lib/repositories/planPurchases";
 import { NavBar } from "@/components/NavBar";
 import { GameCard } from "@/components/GameCard";
 
@@ -18,6 +19,8 @@ export default async function GamesPage() {
 
   const myWaitlistEntries = await listWaitlistForUser(session.id);
   const myWaitlistPositionByGame = new Map(myWaitlistEntries.map((w) => [w.game_id, w.position]));
+
+  const creditBalances = await getCreditBalances(session.id);
 
   return (
     <>
@@ -37,6 +40,7 @@ export default async function GamesPage() {
                 alreadyBooked={myBookedGameIds.has(game.id)}
                 paidAttendeeNames={attendeeNamesByGame.get(game.id)}
                 waitlistPosition={myWaitlistPositionByGame.get(game.id)}
+                creditBalance={creditBalances.get(game.sport)}
               />
             ))}
           </div>

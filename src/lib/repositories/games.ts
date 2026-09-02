@@ -24,11 +24,17 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** Upcoming, non-cancelled games -- what members and the public games page see. */
+/**
+ * Upcoming, non-cancelled games -- what members and the public games page
+ * see. Imported historical games (see src/lib/db.ts) are explicitly
+ * excluded even if their date happens to land on or after today -- an
+ * already-played game imported for record-keeping should never become
+ * live-bookable just because "today" lines up with its date.
+ */
 export async function listUpcomingGames(): Promise<Game[]> {
   await ensureDb();
   const { rows } = await getPool().query<Game>(
-    "SELECT * FROM games WHERE date >= $1 AND status = 'active' ORDER BY date ASC, time ASC",
+    "SELECT * FROM games WHERE date >= $1 AND status = 'active' AND imported_revenue IS NULL ORDER BY date ASC, time ASC",
     [today()]
   );
   return rows;

@@ -1,4 +1,5 @@
 import type { Game } from "@/lib/repositories/games";
+import { formatMoney } from "@/lib/money";
 import { ReserveForm } from "@/components/ReserveForm";
 import { SportBadge } from "@/components/SportBadge";
 
@@ -12,6 +13,7 @@ export function GameCard({
   alreadyBooked,
   paidAttendeeNames,
   waitlistPosition,
+  creditBalance,
 }: {
   game: Game;
   alreadyBooked: boolean;
@@ -19,6 +21,8 @@ export function GameCard({
   paidAttendeeNames?: string[];
   /** 1-indexed queue position if the current member is on this game's waitlist. */
   waitlistPosition?: number;
+  /** Remaining game credits the member has for this sport -- see games/page.tsx. */
+  creditBalance?: number;
 }) {
   const isFull = game.spots_filled >= game.total_spots;
 
@@ -27,7 +31,7 @@ export function GameCard({
       <div className="flex items-start justify-between gap-3">
         <SportBadge sport={game.sport} />
         <span className="rounded-full bg-navy/5 px-3 py-1 text-xs font-semibold text-navy">
-          AED {game.price_aed}
+          AED {formatMoney(game.price_aed)}
         </span>
       </div>
 
@@ -52,6 +56,7 @@ export function GameCard({
           paymentLink={game.payment_link}
           gameLabel={`${game.sport} on ${formatDate(game.date)}`}
           waitlistPosition={waitlistPosition}
+          creditBalance={creditBalance}
         />
       </div>
 

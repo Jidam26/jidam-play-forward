@@ -1,6 +1,8 @@
 import { requireSession } from "@/lib/session";
+import Link from "next/link";
 import { listBookingsForUser } from "@/lib/repositories/bookings";
 import { listWaitlistForUser } from "@/lib/repositories/waitlist";
+import { getCreditBalances } from "@/lib/repositories/planPurchases";
 import { NavBar } from "@/components/NavBar";
 import { SportBadge } from "@/components/SportBadge";
 import { PaymentInstructions } from "@/components/PaymentInstructions";
@@ -16,12 +18,29 @@ export default async function BookingsPage() {
   const session = await requireSession();
   const bookings = await listBookingsForUser(session.id);
   const waitlistEntries = await listWaitlistForUser(session.id);
+  const creditBalances = await getCreditBalances(session.id);
 
   return (
     <>
       <NavBar session={session} />
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-10">
-        <h1 className="text-2xl font-extrabold text-navy">My Bookings</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl font-extrabold text-navy">My Bookings</h1>
+          <Link href="/plans" className="text-sm font-semibold text-navy hover:text-gold">
+            View Game Credit Plans &rarr;
+          </Link>
+        </div>
+
+        {creditBalances.size > 0 && (
+          <div className="mt-4 flex flex-wrap gap-3">
+            {[...creditBalances.entries()].map(([sport, balance]) => (
+              <div key={sport} className="rounded-2xl border border-navy/10 bg-white px-5 py-3 shadow-sm">
+                <SportBadge sport={sport} />
+                <p className="mt-1 text-lg font-extrabold text-navy">{balance} credit{balance === 1 ? "" : "s"}</p>
+              </div>
+            ))}
+          </div>
+        )}
 
         {bookings.length === 0 ? (
           <p className="mt-10 text-center text-navy/50">
@@ -45,7 +64,7 @@ export default async function BookingsPage() {
                         b.payment_status === "paid" ? "bg-green-100 text-green-800" : "bg-gold/15 text-navy"
                       }`}
                     >
-                      {b.payment_status === "paid" ? "Paid" : "Reserved · payment pending"}
+                      {b.payment_status === "paid" ? (b.paid_via_credit ? "Paid with credit" : "Paid") : "Reserved · payment pending"}
                     </span>
                     <CancelBookingButton bookingId={b.id} />
                   </div>

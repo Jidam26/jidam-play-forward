@@ -1,6 +1,13 @@
 import { Pool, type PoolClient } from "pg";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
+import {
+  IMPORTED_FOOTBALL_V2,
+  IMPORTED_FOOTBALL_ATTENDEES_V2,
+  IMPORTED_VOLLEYBALL_V2,
+  IMPORTED_VOLLEYBALL_ATTENDEES_V2,
+  type ImportedAttendee,
+} from "@/lib/data/importedGamesV2";
 
 // ---------------------------------------------------------------------------
 // Postgres (Neon) database, reached over the standard `pg` driver so this
@@ -133,6 +140,64 @@ async function migrate(client: PoolClient) {
       UNIQUE (game_id, user_id)
     );
 
+    -- Admin-configurable game-credit packages (e.g. "4-Game Football Pack --
+    -- 120 AED"). "active" lets an admin retire a plan from the member-facing
+    -- list without deleting it -- past purchases still reference it by id.
+    CREATE TABLE IF NOT EXISTS plans (
+      id TEXT PRIMARY KEY,
+      sport TEXT NOT NULL,
+      name TEXT NOT NULL,
+      games_included INTEGER NOT NULL,
+      price_aed DOUBLE PRECISION NOT NULL,
+      payment_link TEXT,
+      active BOOLEAN NOT NULL DEFAULT true,
+      created_at TEXT NOT NULL DEFAULT (now()::text)
+    );
+
+    -- A member's request to buy a plan -- same manual payment-link +
+    -- WhatsApp-screenshot flow as everything else in this app (see
+    -- src/lib/config.ts). sport/games_included/price_aed are copied from
+    -- the plan at request time so a purchase's own record stays accurate
+    -- even if the plan is edited or deactivated later.
+    CREATE TABLE IF NOT EXISTS plan_purchases (
+      id TEXT PRIMARY KEY,
+      plan_id TEXT NOT NULL REFERENCES plans(id),
+      user_id TEXT NOT NULL REFERENCES users(id),
+      sport TEXT NOT NULL,
+      games_included INTEGER NOT NULL,
+      price_aed DOUBLE PRECISION NOT NULL,
+      payment_status TEXT NOT NULL CHECK (payment_status IN ('pending', 'paid')) DEFAULT 'pending',
+      created_at TEXT NOT NULL DEFAULT (now()::text)
+    );
+
+    -- A member's remaining game credits, per sport. Credited when an admin
+    -- confirms a plan purchase as paid; debited by one when the member
+    -- books a game using a credit instead of the per-game payment flow
+    -- (see reserveSpotWithCredit in repositories/bookings.ts). Never
+    -- expires -- just a running balance, no per-credit expiry tracking.
+    CREATE TABLE IF NOT EXISTS credit_balances (
+      user_id TEXT NOT NULL REFERENCES users(id),
+      sport TEXT NOT NULL,
+      balance INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (user_id, sport)
+    );
+
+    -- Named attendees on an imported historical game (see
+    -- importDetailedGamesV2IfNeeded below) -- there's no real member
+    -- account behind these names, so this is a simple read-only roster for
+    -- admins, not a bookings row. "status" carries the source record's own
+    -- label verbatim (e.g. "Paid", "Free - organiser", "Unconfirmed",
+    -- "Waitlist") rather than forcing it into the app's reserved/paid enum.
+    CREATE TABLE IF NOT EXISTS imported_attendees (
+      id TEXT PRIMARY KEY,
+      game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      status TEXT NOT NULL,
+      amount_paid DOUBLE PRECISION NOT NULL DEFAULT 0,
+      is_waitlist BOOLEAN NOT NULL DEFAULT false,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
+
     -- "Forgot password" tokens. The token itself is the primary key (a long
     -- random string, unguessable), so looking one up doubles as validating
     -- it exists. used_at is set the moment it's redeemed so a token can't
@@ -155,6 +220,11 @@ async function migrate(client: PoolClient) {
     -- from created_at (when it was logged into the app). Left blank if the
     -- admin doesn't need to backdate it.
     ALTER TABLE expenses ADD COLUMN IF NOT EXISTS date TEXT;
+    -- Set when a booking was paid for with a game credit (see
+    -- reserveSpotWithCredit) instead of the per-game manual payment flow --
+    -- so admins can tell the two apart in the attendee list, and so this
+    -- booking's amount_paid (always 0) isn't mistaken for a free spot.
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS paid_via_credit BOOLEAN NOT NULL DEFAULT false;
   `);
 
   // The 'role' CHECK constraint above only applies to a freshly created
@@ -362,6 +432,106 @@ async function importRealGamesIfNeeded(client: PoolClient) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// One-time replacement of the rough import above with the real trackers
+// (JIDAM_Football_Tracker.xlsx / JIDAM_Volleyball_Tracker.xlsx), which have
+// full per-attendee detail the original two Word docs didn't. Runs after
+// importRealGamesIfNeeded, whether that ran just now or long ago: first
+// deletes the exact games it inserted (matched by the same sport+date pairs,
+// which importRealGamesIfNeeded also used to identify its own rows), then
+// inserts the richer replacement -- games, their expense line items, and a
+// named attendee roster per game. Gated separately so it still runs exactly
+// once even though it depends on the older migration.
+// ---------------------------------------------------------------------------
+
+async function importDetailedGamesV2IfNeeded(client: PoolClient) {
+  await client.query("BEGIN");
+  try {
+    const gate = await client.query(
+      `INSERT INTO app_meta (key, value) VALUES ('imported_detailed_games_v2', '1') ON CONFLICT (key) DO NOTHING RETURNING key`
+    );
+    if (gate.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return;
+    }
+
+    const oldVolleyballDates = IMPORTED_VOLLEYBALL.map((g) => g.date);
+    const oldFootballDates = IMPORTED_FOOTBALL.map((g) => g.date);
+    const oldIdsRes = await client.query<{ id: string }>(
+      `SELECT id FROM games WHERE (sport = 'Volleyball' AND date = ANY($1)) OR (sport = 'Football' AND date = ANY($2))`,
+      [oldVolleyballDates, oldFootballDates]
+    );
+    const oldIds = oldIdsRes.rows.map((r) => r.id);
+    if (oldIds.length > 0) {
+      // expenses.game_id is ON DELETE SET NULL, not CASCADE -- deleting the
+      // games first would leave their old expense rows behind, misattributed
+      // as general (not-tied-to-a-game) expenses. Clear those explicitly.
+      await client.query(`DELETE FROM expenses WHERE game_id = ANY($1)`, [oldIds]);
+      await client.query(`DELETE FROM games WHERE id = ANY($1)`, [oldIds]);
+    }
+
+    const insertGame = async (
+      sport: string,
+      date: string,
+      time: string,
+      venue: string,
+      priceAed: number,
+      totalSpots: number,
+      importedRevenue: number
+    ) => {
+      const id = randomUUID();
+      await client.query(
+        `INSERT INTO games (id, sport, date, time, venue, price_aed, total_spots, spots_filled, status, imported_revenue)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 'active', $8)`,
+        [id, sport, date, time, venue, priceAed, totalSpots, importedRevenue]
+      );
+      return id;
+    };
+
+    const insertExpense = (gameId: string, description: string, amount: number) =>
+      client.query(`INSERT INTO expenses (id, game_id, description, amount) VALUES ($1, $2, $3, $4)`, [
+        randomUUID(),
+        gameId,
+        description,
+        amount,
+      ]);
+
+    const insertAttendees = (gameId: string, attendees: ImportedAttendee[] | undefined) => {
+      if (!attendees) return Promise.resolve();
+      return Promise.all(
+        attendees.map((a, i) =>
+          client.query(
+            `INSERT INTO imported_attendees (id, game_id, name, status, amount_paid, is_waitlist, sort_order)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [randomUUID(), gameId, a.name, a.status, a.amount, a.waitlist, i]
+          )
+        )
+      );
+    };
+
+    for (const g of IMPORTED_FOOTBALL_V2) {
+      const id = await insertGame("Football", g.date, "19:00", g.venue, g.price, g.totalSpots, g.revenue);
+      await insertExpense(id, "Court hire", g.court);
+      await insertExpense(id, "Water", g.water);
+      if (g.operatorCut > 0) await insertExpense(id, "Operator cut", g.operatorCut);
+      await insertAttendees(id, IMPORTED_FOOTBALL_ATTENDEES_V2[g.date]);
+    }
+
+    for (const g of IMPORTED_VOLLEYBALL_V2) {
+      const id = await insertGame("Volleyball", g.date, g.time, g.venue, g.fee, g.totalSpots, g.revenue);
+      await insertExpense(id, "Venue cost", g.venueCost);
+      if (g.operatorCut > 0) await insertExpense(id, "Operator cut", g.operatorCut);
+      if (g.otherCost > 0) await insertExpense(id, "Other cost", g.otherCost);
+      await insertAttendees(id, IMPORTED_VOLLEYBALL_ATTENDEES_V2[g.session]);
+    }
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  }
+}
+
 // Runs once per warm function instance (or dev process); later calls reuse
 // the same resolved promise instead of hitting the database again.
 let initialized: Promise<void> | null = null;
@@ -375,6 +545,7 @@ export function ensureDb(): Promise<void> {
         await seedIfNeeded(client);
         await purgeDemoDataIfNeeded(client);
         await importRealGamesIfNeeded(client);
+        await importDetailedGamesV2IfNeeded(client);
       } finally {
         client.release();
       }

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin, requireSession } from "@/lib/session";
-import { cancelBooking, markBookingPaid, reserveSpot } from "@/lib/repositories/bookings";
+import { cancelBooking, deleteAttendee, markBookingPaid, reserveSpot, reserveSpotWithCredit } from "@/lib/repositories/bookings";
 import { joinWaitlist, leaveWaitlist } from "@/lib/repositories/waitlist";
 import { findGameById } from "@/lib/repositories/games";
 import { sendEmail, bookingConfirmationEmail, waitlistPromotionEmail } from "@/lib/email";
@@ -69,6 +69,44 @@ export async function markPaidAction(
   revalidatePath("/admin");
 }
 
+export type ReserveWithCreditState = { error?: string; success?: boolean };
+
+/** Reserve a spot using a game credit instead of the manual payment flow -- see reserveSpotWithCredit. */
+export async function reserveSpotWithCreditAction(
+  _prevState: ReserveWithCreditState,
+  formData: FormData
+): Promise<ReserveWithCreditState> {
+  const session = await requireSession();
+  const gameId = String(formData.get("gameId") ?? "");
+  if (!gameId) return { error: "Missing game." };
+
+  const result = await reserveSpotWithCredit(session.id, gameId);
+  if (!result.ok) {
+    switch (result.reason) {
+      case "GAME_FULL":
+        return { error: "Sorry, that game just filled up." };
+      case "ALREADY_BOOKED":
+        return { error: "You already have a spot in this game." };
+      case "GAME_NOT_FOUND":
+        return { error: "That game no longer exists." };
+      case "NO_CREDIT":
+        return { error: "You don't have a credit for this sport." };
+    }
+  }
+
+  revalidatePath("/games");
+  revalidatePath("/bookings");
+  revalidatePath("/admin");
+
+  const game = await findGameById(gameId);
+  if (game) {
+    const { subject, html } = bookingConfirmationEmail(game);
+    await sendEmail(session.email, subject, html);
+  }
+
+  return { success: true };
+}
+
 export type WaitlistState = { error?: string; success?: boolean };
 
 /** A game is full -- join its waitlist instead of reserving a spot. */
@@ -120,6 +158,37 @@ export async function cancelBookingAction(bookingId: string): Promise<void> {
   revalidatePath("/games");
   revalidatePath("/bookings");
   revalidatePath("/admin");
+
+  if (result.promoted) {
+    const { subject, html } = waitlistPromotionEmail(result.promoted);
+    await sendEmail(result.promoted.email, subject, html);
+  }
+}
+
+/**
+ * Admin-only: permanently delete an attendee's booking from a game --
+ * bound to `.bind(null, bookingId, attendeeName, gameLabel, gameId)` where
+ * it's used as a form action -- see AdminGameCard. Unlike a self-cancel,
+ * this is destructive and admin-initiated on someone else's booking, so
+ * it's logged to the boss-only activity log (who deleted whom, from
+ * which game). Same waitlist auto-promotion + email as a self-cancel.
+ */
+export async function deleteAttendeeAction(
+  bookingId: string,
+  attendeeName: string,
+  gameLabel: string,
+  gameId: string
+): Promise<void> {
+  const session = await requireAdmin();
+  const result = await deleteAttendee(bookingId);
+  if (!result.ok) return; // stale button (already removed elsewhere) -- nothing to do
+
+  await logActivity(session.id, "player_deleted", `Deleted ${attendeeName} from ${gameLabel}`, gameId);
+
+  revalidatePath("/games");
+  revalidatePath("/bookings");
+  revalidatePath("/admin");
+  revalidatePath("/admin/past");
 
   if (result.promoted) {
     const { subject, html } = waitlistPromotionEmail(result.promoted);
