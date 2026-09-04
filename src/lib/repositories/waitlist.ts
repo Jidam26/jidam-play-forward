@@ -42,6 +42,7 @@ export type WaitlistEntryWithGame = {
   sport: string;
   date: string;
   time: string;
+  end_time: string | null;
   venue: string;
   /** 1-indexed queue position -- 1 means next in line to be promoted. */
   position: number;
@@ -51,7 +52,7 @@ export type WaitlistEntryWithGame = {
 export async function listWaitlistForUser(userId: string): Promise<WaitlistEntryWithGame[]> {
   await ensureDb();
   const { rows } = await getPool().query<WaitlistEntryWithGame>(
-    `SELECT w.id, w.game_id, g.sport, g.date, g.time, g.venue,
+    `SELECT w.id, w.game_id, g.sport, g.date, g.time, g.end_time, g.venue,
        (SELECT COUNT(*)::int FROM waitlist_entries w2
         WHERE w2.game_id = w.game_id AND w2.created_at <= w.created_at) as position
      FROM waitlist_entries w JOIN games g ON g.id = w.game_id

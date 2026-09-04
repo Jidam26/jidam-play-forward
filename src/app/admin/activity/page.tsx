@@ -12,6 +12,7 @@ const ACTION_BADGES: Record<ActivityEntry["action"], { label: string; className:
   game_cancelled: { label: "Cancelled", className: "bg-red-100 text-red-700" },
   payment_marked_paid: { label: "Payment Confirmed", className: "bg-blue-100 text-blue-700" },
   player_deleted: { label: "Player Deleted", className: "bg-orange-100 text-orange-700" },
+  player_added: { label: "Player Added", className: "bg-teal-100 text-teal-700" },
 };
 
 export default async function ActivityLogPage() {
@@ -26,7 +27,7 @@ export default async function ActivityLogPage() {
           <div>
             <h1 className="text-2xl font-extrabold text-navy">Activity Log</h1>
             <p className="mt-1 text-sm text-navy/60">
-              Games published or cancelled, payments confirmed, and players deleted, by any admin.
+              Games published or cancelled, payments confirmed, and players added or deleted, by any admin.
             </p>
           </div>
           <Link href="/admin" className="text-sm font-semibold text-navy hover:text-gold">

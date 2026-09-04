@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { createPlanAction, type FormState } from "@/lib/actions/plans";
 import { SubmitButton } from "@/components/SubmitButton";
 
@@ -8,9 +8,24 @@ const initialState: FormState = {};
 
 export function PlanForm() {
   const [state, formAction] = useActionState(createPlanAction, initialState);
+  const [planType, setPlanType] = useState<"credits" | "subscription">("credits");
 
   return (
     <form action={formAction} className="space-y-4">
+      <label className="block">
+        <span className="mb-1 block text-sm font-medium text-navy">Plan type</span>
+        <select
+          name="plan_type"
+          required
+          value={planType}
+          onChange={(e) => setPlanType(e.target.value as "credits" | "subscription")}
+          className="w-full rounded-lg border border-navy/20 bg-white px-3 py-2.5 text-base text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/30"
+        >
+          <option value="credits">Credit pack (fixed number of games, never expires)</option>
+          <option value="subscription">Monthly subscription (unlimited games for a set number of days)</option>
+        </select>
+      </label>
+
       <label className="block">
         <span className="mb-1 block text-sm font-medium text-navy">Sport</span>
         <select
@@ -32,24 +47,39 @@ export function PlanForm() {
           name="name"
           type="text"
           required
-          placeholder="e.g. 4-Game Football Pack"
+          placeholder={planType === "credits" ? "e.g. 4-Game Football Pack" : "e.g. Football Monthly Unlimited"}
           className="w-full rounded-lg border border-navy/20 bg-white px-3 py-2.5 text-base text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/30"
         />
       </label>
 
       <div className="grid grid-cols-2 gap-4">
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium text-navy">Games included</span>
-          <input
-            name="games_included"
-            type="number"
-            min={1}
-            step="1"
-            required
-            defaultValue={4}
-            className="w-full rounded-lg border border-navy/20 bg-white px-3 py-2.5 text-base text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/30"
-          />
-        </label>
+        {planType === "credits" ? (
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-navy">Games included</span>
+            <input
+              name="games_included"
+              type="number"
+              min={1}
+              step="1"
+              required
+              defaultValue={4}
+              className="w-full rounded-lg border border-navy/20 bg-white px-3 py-2.5 text-base text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/30"
+            />
+          </label>
+        ) : (
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-navy">Duration (days)</span>
+            <input
+              name="duration_days"
+              type="number"
+              min={1}
+              step="1"
+              required
+              defaultValue={30}
+              className="w-full rounded-lg border border-navy/20 bg-white px-3 py-2.5 text-base text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/30"
+            />
+          </label>
+        )}
         <label className="block">
           <span className="mb-1 block text-sm font-medium text-navy">Price (AED)</span>
           <input
@@ -58,7 +88,7 @@ export function PlanForm() {
             min={0}
             step="0.01"
             required
-            defaultValue={120}
+            defaultValue={planType === "credits" ? 120 : 200}
             className="w-full rounded-lg border border-navy/20 bg-white px-3 py-2.5 text-base text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/30"
           />
         </label>

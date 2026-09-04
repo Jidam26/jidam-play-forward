@@ -4,12 +4,16 @@ import type { Plan } from "@/lib/repositories/plans";
 
 export type PlanPurchase = {
   id: string;
-  plan_id: string;
+  plan_id: string | null;
+  plan_type: "credits" | "subscription";
   user_id: string;
   sport: string;
-  games_included: number;
+  games_included: number | null;
+  duration_days: number | null;
   price_aed: number;
   payment_status: "pending" | "paid";
+  /** Set only for a subscription purchase, the moment it's confirmed paid -- null for credit packs, which never expire. */
+  valid_until: string | null;
   created_at: string;
 };
 
@@ -20,8 +24,8 @@ export type RequestPlanPurchaseResult =
 /**
  * A member requests to buy a plan -- same "reserve now, pay via WhatsApp,
  * admin confirms" flow as booking a game (see src/lib/config.ts). No
- * credits are granted yet; that only happens once an admin confirms the
- * payment (see confirmPlanPurchase).
+ * credits/subscription are granted yet; that only happens once an admin
+ * confirms the payment (see confirmPlanPurchase).
  */
 export async function requestPlanPurchase(userId: string, planId: string): Promise<RequestPlanPurchaseResult> {
   await ensureDb();
@@ -31,9 +35,9 @@ export async function requestPlanPurchase(userId: string, planId: string): Promi
   if (!plan.active) return { ok: false, reason: "PLAN_INACTIVE" };
 
   const inserted = await getPool().query<PlanPurchase>(
-    `INSERT INTO plan_purchases (id, plan_id, user_id, sport, games_included, price_aed)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [randomUUID(), plan.id, userId, plan.sport, plan.games_included, plan.price_aed]
+    `INSERT INTO plan_purchases (id, plan_id, plan_type, user_id, sport, games_included, duration_days, price_aed)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+    [randomUUID(), plan.id, plan.plan_type, userId, plan.sport, plan.games_included, plan.duration_days, plan.price_aed]
   );
   return { ok: true, purchase: inserted.rows[0] };
 }
@@ -59,10 +63,13 @@ export type ConfirmPlanPurchaseResult =
   | { ok: false; reason: "PURCHASE_NOT_FOUND" };
 
 /**
- * Admin confirms a plan purchase as paid -- marks it paid AND credits the
- * member's per-sport balance, atomically (one without the other would
- * either grant free credits or take someone's money with nothing to show
- * for it). Locks the purchase row first so a double-click can't double-credit.
+ * Admin confirms a plan purchase as paid. For a credits-type plan, this
+ * credits the member's per-sport balance; for a subscription-type plan, it
+ * instead sets valid_until to duration_days from now. Either way, marking
+ * paid and granting access happen atomically -- one without the other
+ * would either grant free access or take someone's money with nothing to
+ * show for it. Locks the purchase row first so a double-click can't
+ * double-grant.
  */
 export async function confirmPlanPurchase(purchaseId: string): Promise<ConfirmPlanPurchaseResult> {
   await ensureDb();
@@ -76,22 +83,69 @@ export async function confirmPlanPurchase(purchaseId: string): Promise<ConfirmPl
       return { ok: false, reason: "PURCHASE_NOT_FOUND" };
     }
     if (purchase.payment_status === "paid") {
-      // Already confirmed elsewhere -- don't credit twice.
+      // Already confirmed elsewhere -- don't grant twice.
       await client.query("ROLLBACK");
       return { ok: true, purchase };
     }
 
-    const updated = await client.query<PlanPurchase>(
-      "UPDATE plan_purchases SET payment_status = 'paid' WHERE id = $1 RETURNING *",
-      [purchaseId]
+    let updated: PlanPurchase;
+    if (purchase.plan_type === "subscription") {
+      const durationDays = purchase.duration_days ?? 30;
+      const validUntilRes = await client.query<PlanPurchase>(
+        `UPDATE plan_purchases SET payment_status = 'paid', valid_until = (now() + ($2 || ' days')::interval)::date::text
+         WHERE id = $1 RETURNING *`,
+        [purchaseId, durationDays]
+      );
+      updated = validUntilRes.rows[0];
+    } else {
+      const paidRes = await client.query<PlanPurchase>(
+        "UPDATE plan_purchases SET payment_status = 'paid' WHERE id = $1 RETURNING *",
+        [purchaseId]
+      );
+      updated = paidRes.rows[0];
+      await client.query(
+        `INSERT INTO credit_balances (user_id, sport, balance) VALUES ($1, $2, $3)
+         ON CONFLICT (user_id, sport) DO UPDATE SET balance = credit_balances.balance + $3`,
+        [purchase.user_id, purchase.sport, purchase.games_included ?? 0]
+      );
+    }
+    await client.query("COMMIT");
+    return { ok: true, purchase: updated };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Admin-only: grant credits directly to a member, no request/confirm step
+ * -- for a cash-in-person payment, a comp/promo (priceAed 0), or correcting
+ * a mistake. Always credits-type, paid immediately, no plan_id behind it.
+ */
+export async function issueCreditsDirectly(
+  userId: string,
+  sport: string,
+  gamesIncluded: number,
+  priceAed: number
+): Promise<PlanPurchase> {
+  await ensureDb();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const inserted = await client.query<PlanPurchase>(
+      `INSERT INTO plan_purchases (id, plan_id, plan_type, user_id, sport, games_included, price_aed, payment_status)
+       VALUES ($1, NULL, 'credits', $2, $3, $4, $5, 'paid') RETURNING *`,
+      [randomUUID(), userId, sport, gamesIncluded, priceAed]
     );
     await client.query(
       `INSERT INTO credit_balances (user_id, sport, balance) VALUES ($1, $2, $3)
        ON CONFLICT (user_id, sport) DO UPDATE SET balance = credit_balances.balance + $3`,
-      [purchase.user_id, purchase.sport, purchase.games_included]
+      [userId, sport, gamesIncluded]
     );
     await client.query("COMMIT");
-    return { ok: true, purchase: updated.rows[0] };
+    return inserted.rows[0];
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;
@@ -119,7 +173,50 @@ export async function getCreditBalances(userId: string): Promise<Map<string, num
   return new Map(rows.map((r) => [r.sport, r.balance]));
 }
 
-/** Revenue collected from plan purchases -- a distinct stream from per-game amount_paid, so Reports totals both separately. */
+/** Every member's credit balances at once, for the Members directory -- avoids one query per row. */
+export async function getAllCreditBalances(): Promise<Map<string, Map<string, number>>> {
+  await ensureDb();
+  const { rows } = await getPool().query<{ user_id: string; sport: string; balance: number }>(
+    "SELECT user_id, sport, balance FROM credit_balances WHERE balance > 0"
+  );
+  const map = new Map<string, Map<string, number>>();
+  for (const r of rows) {
+    const bySport = map.get(r.user_id) ?? new Map<string, number>();
+    bySport.set(r.sport, r.balance);
+    map.set(r.user_id, bySport);
+  }
+  return map;
+}
+
+/** Whether a member has a currently-valid (paid, not yet expired) subscription for a sport. */
+export async function hasActiveSubscription(userId: string, sport: string): Promise<boolean> {
+  await ensureDb();
+  const { rows } = await getPool().query(
+    `SELECT 1 FROM plan_purchases
+     WHERE user_id = $1 AND sport = $2 AND plan_type = 'subscription' AND payment_status = 'paid'
+       AND valid_until >= $3
+     LIMIT 1`,
+    [userId, sport, new Date().toISOString().slice(0, 10)]
+  );
+  return (rows.length ?? 0) > 0;
+}
+
+/** A member's active subscriptions, per sport -- e.g. { Football: "2026-10-04" } (the expiry date). */
+export async function getActiveSubscriptions(userId: string): Promise<Map<string, string>> {
+  await ensureDb();
+  const { rows } = await getPool().query<{ sport: string; valid_until: string }>(
+    `SELECT sport, valid_until FROM plan_purchases
+     WHERE user_id = $1 AND plan_type = 'subscription' AND payment_status = 'paid' AND valid_until >= $2
+     ORDER BY valid_until DESC`,
+    [userId, new Date().toISOString().slice(0, 10)]
+  );
+  const map = new Map<string, string>();
+  // Keep the furthest-out expiry per sport if there happen to be more than one.
+  for (const r of rows) if (!map.has(r.sport)) map.set(r.sport, r.valid_until);
+  return map;
+}
+
+/** Revenue collected from plan purchases (credit packs + subscriptions) -- a distinct stream from per-game amount_paid, so Reports totals both separately. */
 export async function totalPlanRevenue(): Promise<number> {
   await ensureDb();
   const { rows } = await getPool().query<{ total: number }>(

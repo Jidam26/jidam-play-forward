@@ -2,12 +2,13 @@ import { requireSession } from "@/lib/session";
 import Link from "next/link";
 import { listBookingsForUser } from "@/lib/repositories/bookings";
 import { listWaitlistForUser } from "@/lib/repositories/waitlist";
-import { getCreditBalances } from "@/lib/repositories/planPurchases";
+import { getCreditBalances, getActiveSubscriptions } from "@/lib/repositories/planPurchases";
 import { NavBar } from "@/components/NavBar";
 import { SportBadge } from "@/components/SportBadge";
 import { PaymentInstructions } from "@/components/PaymentInstructions";
 import { CancelBookingButton } from "@/components/CancelBookingButton";
 import { leaveWaitlistAction } from "@/lib/actions/bookings";
+import { formatTimeRange } from "@/lib/time";
 
 function formatDate(dateStr: string) {
   const date = new Date(`${dateStr}T00:00:00`);
@@ -19,6 +20,7 @@ export default async function BookingsPage() {
   const bookings = await listBookingsForUser(session.id);
   const waitlistEntries = await listWaitlistForUser(session.id);
   const creditBalances = await getCreditBalances(session.id);
+  const activeSubscriptions = await getActiveSubscriptions(session.id);
 
   return (
     <>
@@ -31,12 +33,21 @@ export default async function BookingsPage() {
           </Link>
         </div>
 
-        {creditBalances.size > 0 && (
+        {(creditBalances.size > 0 || activeSubscriptions.size > 0) && (
           <div className="mt-4 flex flex-wrap gap-3">
             {[...creditBalances.entries()].map(([sport, balance]) => (
               <div key={sport} className="rounded-2xl border border-navy/10 bg-white px-5 py-3 shadow-sm">
                 <SportBadge sport={sport} />
                 <p className="mt-1 text-lg font-extrabold text-navy">{balance} credit{balance === 1 ? "" : "s"}</p>
+              </div>
+            ))}
+            {[...activeSubscriptions.entries()].map(([sport, validUntil]) => (
+              <div key={sport} className="rounded-2xl border border-navy/10 bg-white px-5 py-3 shadow-sm">
+                <SportBadge sport={sport} />
+                <p className="mt-1 text-sm font-semibold text-navy">
+                  Subscribed until{" "}
+                  {new Date(`${validUntil}T00:00:00`).toLocaleDateString("en-AE", { day: "numeric", month: "short" })}
+                </p>
               </div>
             ))}
           </div>
@@ -54,7 +65,7 @@ export default async function BookingsPage() {
                   <div>
                     <SportBadge sport={b.sport} />
                     <p className="mt-2 font-bold text-navy">
-                      {formatDate(b.date)} &middot; {b.time}
+                      {formatDate(b.date)} &middot; {formatTimeRange(b.time, b.end_time)}
                     </p>
                     <p className="text-sm text-navy/70">{b.venue}</p>
                   </div>
@@ -64,7 +75,13 @@ export default async function BookingsPage() {
                         b.payment_status === "paid" ? "bg-green-100 text-green-800" : "bg-gold/15 text-navy"
                       }`}
                     >
-                      {b.payment_status === "paid" ? (b.paid_via_credit ? "Paid with credit" : "Paid") : "Reserved · payment pending"}
+                      {b.payment_status === "paid"
+                        ? b.paid_via_credit
+                          ? "Paid with credit"
+                          : b.paid_via_subscription
+                            ? "Paid with subscription"
+                            : "Paid"
+                        : "Reserved · payment pending"}
                     </span>
                     <CancelBookingButton bookingId={b.id} />
                   </div>
@@ -92,7 +109,7 @@ export default async function BookingsPage() {
                   <div>
                     <SportBadge sport={w.sport} />
                     <p className="mt-2 font-bold text-navy">
-                      {formatDate(w.date)} &middot; {w.time}
+                      {formatDate(w.date)} &middot; {formatTimeRange(w.time, w.end_time)}
                     </p>
                     <p className="text-sm text-navy/70">{w.venue}</p>
                   </div>

@@ -2,6 +2,7 @@ import type { Game } from "@/lib/repositories/games";
 import type { Attendee } from "@/lib/repositories/bookings";
 import type { ImportedAttendeeRow } from "@/lib/repositories/importedAttendees";
 import { formatMoney } from "@/lib/money";
+import { formatTimeRange } from "@/lib/time";
 import { markPaidAction } from "@/lib/actions/bookings";
 import { SportBadge } from "@/components/SportBadge";
 import { DeleteAttendeeButton } from "@/components/DeleteAttendeeButton";
@@ -89,7 +90,7 @@ export function AdminGameCard({
             )}
           </div>
           <p className="mt-2 font-bold text-navy">
-            {formatDate(game.date)} &middot; {game.time}
+            {formatDate(game.date)} &middot; {formatTimeRange(game.time, game.end_time)}
           </p>
           <p className="text-sm text-navy/70">{game.venue}</p>
         </div>
@@ -125,9 +126,16 @@ export function AdminGameCard({
             <tbody>
               {attendees.map((a) => (
                 <tr key={a.booking_id} className="border-b border-navy/5 last:border-0">
-                  <td className="py-2 pr-4 text-navy">{a.name}</td>
-                  <td className="py-2 pr-4 text-navy/70">{a.email}</td>
-                  <td className="py-2 pr-4 text-navy/70">{a.phone}</td>
+                  <td className="py-2 pr-4 text-navy">
+                    {a.name}
+                    {a.is_walk_in && (
+                      <span className="ml-1.5 rounded-full bg-navy/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-navy/60">
+                        Walk-in
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2 pr-4 text-navy/70">{a.email ?? "—"}</td>
+                  <td className="py-2 pr-4 text-navy/70">{a.phone ?? "—"}</td>
                   <td className="py-2 pr-4">
                     <div className="flex items-center gap-2">
                       <span
@@ -135,7 +143,13 @@ export function AdminGameCard({
                           a.payment_status === "paid" ? "bg-green-100 text-green-800" : "bg-gold/15 text-navy"
                         }`}
                       >
-                        {a.payment_status === "paid" ? (a.paid_via_credit ? "Paid (credit)" : "Paid") : "Reserved"}
+                        {a.payment_status === "paid"
+                          ? a.paid_via_credit
+                            ? "Paid (credit)"
+                            : a.paid_via_subscription
+                              ? "Paid (subscription)"
+                              : "Paid"
+                          : "Reserved"}
                       </span>
                       {a.payment_status !== "paid" && (
                         <form
@@ -144,6 +158,8 @@ export function AdminGameCard({
                             a.booking_id,
                             game.price_aed,
                             a.name,
+                            a.email,
+                            a.user_id,
                             `${game.sport} on ${formatDate(game.date)}`,
                             game.id
                           )}

@@ -26,20 +26,30 @@ export function PublishGameForm() {
         </select>
       </label>
 
+      <label className="block">
+        <span className="mb-1 block text-sm font-medium text-navy">Date</span>
+        <input
+          name="date"
+          type="date"
+          required
+          className="w-full rounded-lg border border-navy/20 bg-white px-3 py-2.5 text-base text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/30"
+        />
+      </label>
+
       <div className="grid grid-cols-2 gap-4">
         <label className="block">
-          <span className="mb-1 block text-sm font-medium text-navy">Date</span>
+          <span className="mb-1 block text-sm font-medium text-navy">Start time</span>
           <input
-            name="date"
-            type="date"
+            name="time"
+            type="time"
             required
             className="w-full rounded-lg border border-navy/20 bg-white px-3 py-2.5 text-base text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/30"
           />
         </label>
         <label className="block">
-          <span className="mb-1 block text-sm font-medium text-navy">Time</span>
+          <span className="mb-1 block text-sm font-medium text-navy">End time</span>
           <input
-            name="time"
+            name="end_time"
             type="time"
             required
             className="w-full rounded-lg border border-navy/20 bg-white px-3 py-2.5 text-base text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/30"

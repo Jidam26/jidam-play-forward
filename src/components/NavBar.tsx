@@ -9,11 +9,14 @@ export function NavBar({ session }: { session: SessionUser }) {
   const links = isAdmin
     ? [
         { href: "/admin", label: "Admin" },
+        { href: "/admin/members", label: "Members" },
         { href: "/admin/reports", label: "Reports" },
+        { href: "/admin/receipts", label: "Receipts" },
         ...(session.role === "boss"
           ? [
               { href: "/admin/team", label: "Team" },
               { href: "/admin/activity", label: "Activity" },
+              { href: "/admin/settings", label: "Settings" },
             ]
           : []),
       ]

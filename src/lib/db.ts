@@ -82,6 +82,9 @@ async function migrate(client: PoolClient) {
       sport TEXT NOT NULL,
       date TEXT NOT NULL,
       time TEXT NOT NULL,
+      -- Optional -- when the game is expected to finish. Nullable so old
+      -- games published before this existed just show a start time.
+      end_time TEXT,
       venue TEXT NOT NULL,
       price_aed DOUBLE PRECISION NOT NULL,
       total_spots INTEGER NOT NULL,
@@ -96,9 +99,14 @@ async function migrate(client: PoolClient) {
       created_at TEXT NOT NULL DEFAULT (now()::text)
     );
 
+    -- user_id is nullable to allow a walk-in booking (see addManualAttendee
+    -- in repositories/bookings.ts) -- someone the admin adds directly to a
+    -- game's roster with just a name, no member account. Exactly one of
+    -- user_id/walk_in_name is set, enforced by the CHECK constraint below.
     CREATE TABLE IF NOT EXISTS bookings (
       id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES users(id),
+      user_id TEXT REFERENCES users(id),
+      walk_in_name TEXT,
       game_id TEXT NOT NULL REFERENCES games(id),
       payment_status TEXT NOT NULL CHECK (payment_status IN ('reserved', 'paid')) DEFAULT 'reserved',
       amount_paid DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -140,14 +148,19 @@ async function migrate(client: PoolClient) {
       UNIQUE (game_id, user_id)
     );
 
-    -- Admin-configurable game-credit packages (e.g. "4-Game Football Pack --
-    -- 120 AED"). "active" lets an admin retire a plan from the member-facing
-    -- list without deleting it -- past purchases still reference it by id.
+    -- Admin-configurable plans: either a game-credit pack ("4-Game Football
+    -- Pack -- 120 AED", games_included credits, never expire) or a monthly
+    -- subscription (unlimited games in one sport for duration_days, then it
+    -- lapses -- see hasActiveSubscription in repositories/planPurchases.ts).
+    -- "active" lets an admin retire a plan from the member-facing list
+    -- without deleting it -- past purchases still reference it by id.
     CREATE TABLE IF NOT EXISTS plans (
       id TEXT PRIMARY KEY,
+      plan_type TEXT NOT NULL DEFAULT 'credits' CHECK (plan_type IN ('credits', 'subscription')),
       sport TEXT NOT NULL,
       name TEXT NOT NULL,
-      games_included INTEGER NOT NULL,
+      games_included INTEGER,
+      duration_days INTEGER,
       price_aed DOUBLE PRECISION NOT NULL,
       payment_link TEXT,
       active BOOLEAN NOT NULL DEFAULT true,
@@ -156,25 +169,35 @@ async function migrate(client: PoolClient) {
 
     -- A member's request to buy a plan -- same manual payment-link +
     -- WhatsApp-screenshot flow as everything else in this app (see
-    -- src/lib/config.ts). sport/games_included/price_aed are copied from
-    -- the plan at request time so a purchase's own record stays accurate
-    -- even if the plan is edited or deactivated later.
+    -- src/lib/config.ts). plan_type/sport/games_included/duration_days/
+    -- price_aed are copied from the plan at request time so a purchase's
+    -- own record stays accurate even if the plan is edited or deactivated
+    -- later. plan_id is nullable -- an admin can issue credits directly
+    -- (see issueCreditsDirectly) without a plan behind it at all, in which
+    -- case payment_status is 'paid' immediately, no request/confirm step.
+    -- valid_until is set only for a subscription-type purchase, the moment
+    -- it's confirmed paid (now + duration_days) -- null for credit packs,
+    -- which never expire.
     CREATE TABLE IF NOT EXISTS plan_purchases (
       id TEXT PRIMARY KEY,
-      plan_id TEXT NOT NULL REFERENCES plans(id),
+      plan_id TEXT REFERENCES plans(id),
+      plan_type TEXT NOT NULL DEFAULT 'credits' CHECK (plan_type IN ('credits', 'subscription')),
       user_id TEXT NOT NULL REFERENCES users(id),
       sport TEXT NOT NULL,
-      games_included INTEGER NOT NULL,
+      games_included INTEGER,
+      duration_days INTEGER,
       price_aed DOUBLE PRECISION NOT NULL,
       payment_status TEXT NOT NULL CHECK (payment_status IN ('pending', 'paid')) DEFAULT 'pending',
+      valid_until TEXT,
       created_at TEXT NOT NULL DEFAULT (now()::text)
     );
 
     -- A member's remaining game credits, per sport. Credited when an admin
-    -- confirms a plan purchase as paid; debited by one when the member
-    -- books a game using a credit instead of the per-game payment flow
-    -- (see reserveSpotWithCredit in repositories/bookings.ts). Never
-    -- expires -- just a running balance, no per-credit expiry tracking.
+    -- confirms a credits-type plan purchase as paid (or issues credits
+    -- directly); debited by one when the member books a game using a
+    -- credit instead of the per-game payment flow (see reserveSpotWithCredit
+    -- in repositories/bookings.ts). Never expires -- just a running
+    -- balance, no per-credit expiry tracking.
     CREATE TABLE IF NOT EXISTS credit_balances (
       user_id TEXT NOT NULL REFERENCES users(id),
       sport TEXT NOT NULL,
@@ -197,6 +220,45 @@ async function migrate(client: PoolClient) {
       is_waitlist BOOLEAN NOT NULL DEFAULT false,
       sort_order INTEGER NOT NULL DEFAULT 0
     );
+
+    -- Ever-incrementing source for receipt_number below -- guarantees no
+    -- two receipts ever collide, even issued concurrently.
+    CREATE SEQUENCE IF NOT EXISTS receipt_number_seq START 1;
+
+    -- Permanent record of every payment receipt ever issued (see
+    -- repositories/receipts.ts). Deliberately its own table, not a join
+    -- against bookings/plan_purchases -- a receipt for money already
+    -- received must never disappear just because the booking behind it is
+    -- later deleted (see deleteAttendee) or a plan purchase record changes.
+    -- member_name/member_email are snapshotted at issue time for the same
+    -- reason. source/source_id are a best-effort pointer back to what
+    -- generated it, not a foreign key (the source row may not outlive it).
+    CREATE TABLE IF NOT EXISTS receipts (
+      id TEXT PRIMARY KEY,
+      receipt_number TEXT NOT NULL UNIQUE,
+      user_id TEXT REFERENCES users(id),
+      member_name TEXT NOT NULL,
+      member_email TEXT,
+      description TEXT NOT NULL,
+      amount_aed DOUBLE PRECISION NOT NULL,
+      source TEXT NOT NULL CHECK (source IN ('booking', 'plan_purchase')),
+      source_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (now()::text)
+    );
+
+    -- Single-row table of business details printed on every receipt.
+    -- trn is left blank until the admin enters it in Settings -- receipts
+    -- print "[pending]" until then rather than a fabricated number.
+    CREATE TABLE IF NOT EXISTS business_settings (
+      id TEXT PRIMARY KEY DEFAULT 'default',
+      trade_name_en TEXT NOT NULL,
+      trade_name_ar TEXT NOT NULL,
+      trn TEXT,
+      address TEXT
+    );
+    INSERT INTO business_settings (id, trade_name_en, trade_name_ar)
+      VALUES ('default', 'JIDAM SPORTS SERVICES — L.L.C', 'جدام للخدمات الرياضية - ذ.م.م')
+      ON CONFLICT (id) DO NOTHING;
 
     -- "Forgot password" tokens. The token itself is the primary key (a long
     -- random string, unguessable), so looking one up doubles as validating
@@ -225,6 +287,33 @@ async function migrate(client: PoolClient) {
     -- so admins can tell the two apart in the attendee list, and so this
     -- booking's amount_paid (always 0) isn't mistaken for a free spot.
     ALTER TABLE bookings ADD COLUMN IF NOT EXISTS paid_via_credit BOOLEAN NOT NULL DEFAULT false;
+    -- Same idea, for a booking covered by an active monthly subscription
+    -- (see reserveSpotWithSubscription) rather than a countable credit.
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS paid_via_subscription BOOLEAN NOT NULL DEFAULT false;
+    -- Walk-in support (see addManualAttendee) -- a database created before
+    -- this existed still has user_id NOT NULL, which would reject a
+    -- walk-in row.
+    ALTER TABLE bookings ALTER COLUMN user_id DROP NOT NULL;
+    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS walk_in_name TEXT;
+    ALTER TABLE games ADD COLUMN IF NOT EXISTS end_time TEXT;
+    ALTER TABLE plans ADD COLUMN IF NOT EXISTS plan_type TEXT NOT NULL DEFAULT 'credits';
+    ALTER TABLE plans ADD COLUMN IF NOT EXISTS duration_days INTEGER;
+    ALTER TABLE plans ALTER COLUMN games_included DROP NOT NULL;
+    ALTER TABLE plan_purchases ALTER COLUMN plan_id DROP NOT NULL;
+    ALTER TABLE plan_purchases ADD COLUMN IF NOT EXISTS plan_type TEXT NOT NULL DEFAULT 'credits';
+    ALTER TABLE plan_purchases ADD COLUMN IF NOT EXISTS duration_days INTEGER;
+    ALTER TABLE plan_purchases ADD COLUMN IF NOT EXISTS valid_until TEXT;
+    ALTER TABLE plan_purchases ALTER COLUMN games_included DROP NOT NULL;
+  `);
+
+  // A booking is either a real member's (user_id set) or a walk-in's
+  // (walk_in_name set), never both and never neither. Postgres has no
+  // ADD CONSTRAINT IF NOT EXISTS, so this uses the same drop-then-add
+  // idempotent pattern as the role CHECK below.
+  await client.query(`
+    ALTER TABLE bookings DROP CONSTRAINT IF EXISTS bookings_user_or_walkin;
+    ALTER TABLE bookings ADD CONSTRAINT bookings_user_or_walkin
+      CHECK ((user_id IS NOT NULL) <> (walk_in_name IS NOT NULL));
   `);
 
   // The 'role' CHECK constraint above only applies to a freshly created
@@ -477,13 +566,18 @@ async function importDetailedGamesV2IfNeeded(client: PoolClient) {
       venue: string,
       priceAed: number,
       totalSpots: number,
-      importedRevenue: number
+      importedRevenue: number,
+      // How many actually played -- these are historical games with no real
+      // booking rows, so spots_filled has to be given explicitly (from the
+      // attendee roster below) instead of accumulating the normal way via
+      // reserveSpot. Without this it stays stuck at 0/x forever.
+      spotsFilled: number
     ) => {
       const id = randomUUID();
       await client.query(
         `INSERT INTO games (id, sport, date, time, venue, price_aed, total_spots, spots_filled, status, imported_revenue)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 'active', $8)`,
-        [id, sport, date, time, venue, priceAed, totalSpots, importedRevenue]
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', $9)`,
+        [id, sport, date, time, venue, priceAed, totalSpots, spotsFilled, importedRevenue]
       );
       return id;
     };
@@ -509,20 +603,25 @@ async function importDetailedGamesV2IfNeeded(client: PoolClient) {
       );
     };
 
+    const playedCount = (attendees: ImportedAttendee[] | undefined): number =>
+      attendees ? attendees.filter((a) => !a.waitlist).length : 0;
+
     for (const g of IMPORTED_FOOTBALL_V2) {
-      const id = await insertGame("Football", g.date, "19:00", g.venue, g.price, g.totalSpots, g.revenue);
+      const attendees = IMPORTED_FOOTBALL_ATTENDEES_V2[g.date];
+      const id = await insertGame("Football", g.date, "19:00", g.venue, g.price, g.totalSpots, g.revenue, playedCount(attendees));
       await insertExpense(id, "Court hire", g.court);
       await insertExpense(id, "Water", g.water);
       if (g.operatorCut > 0) await insertExpense(id, "Operator cut", g.operatorCut);
-      await insertAttendees(id, IMPORTED_FOOTBALL_ATTENDEES_V2[g.date]);
+      await insertAttendees(id, attendees);
     }
 
     for (const g of IMPORTED_VOLLEYBALL_V2) {
-      const id = await insertGame("Volleyball", g.date, g.time, g.venue, g.fee, g.totalSpots, g.revenue);
+      const attendees = IMPORTED_VOLLEYBALL_ATTENDEES_V2[g.session];
+      const id = await insertGame("Volleyball", g.date, g.time, g.venue, g.fee, g.totalSpots, g.revenue, playedCount(attendees));
       await insertExpense(id, "Venue cost", g.venueCost);
       if (g.operatorCut > 0) await insertExpense(id, "Operator cut", g.operatorCut);
       if (g.otherCost > 0) await insertExpense(id, "Other cost", g.otherCost);
-      await insertAttendees(id, IMPORTED_VOLLEYBALL_ATTENDEES_V2[g.session]);
+      await insertAttendees(id, attendees);
     }
 
     await client.query("COMMIT");

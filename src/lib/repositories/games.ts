@@ -7,7 +7,8 @@ export type Game = {
   id: string;
   sport: string;
   date: string; // YYYY-MM-DD
-  time: string; // HH:MM
+  time: string; // HH:MM -- start time
+  end_time: string | null; // HH:MM -- optional, null for games published before this existed
   venue: string;
   price_aed: number;
   total_spots: number;
@@ -75,6 +76,7 @@ export type CreateGameInput = {
   sport: string;
   date: string;
   time: string;
+  end_time?: string | null;
   venue: string;
   price_aed: number;
   total_spots: number;
@@ -85,13 +87,14 @@ export async function createGame(input: CreateGameInput): Promise<Game> {
   await ensureDb();
   const id = randomUUID();
   const { rows } = await getPool().query<Game>(
-    `INSERT INTO games (id, sport, date, time, venue, price_aed, total_spots, spots_filled, payment_link)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8) RETURNING *`,
+    `INSERT INTO games (id, sport, date, time, end_time, venue, price_aed, total_spots, spots_filled, payment_link)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9) RETURNING *`,
     [
       id,
       input.sport,
       input.date,
       input.time,
+      input.end_time || null,
       input.venue.trim(),
       input.price_aed,
       input.total_spots,
@@ -105,6 +108,7 @@ export type UpdateGameInput = {
   sport: string;
   date: string;
   time: string;
+  end_time: string | null;
   venue: string;
   price_aed: number;
   total_spots: number;
@@ -124,13 +128,14 @@ export type UpdateGameInput = {
 export async function updateGame(id: string, input: UpdateGameInput): Promise<void> {
   await ensureDb();
   await getPool().query(
-    `UPDATE games SET sport=$2, date=$3, time=$4, venue=$5, price_aed=$6, total_spots=$7, spots_filled=$8, payment_link=$9, imported_revenue=$10
+    `UPDATE games SET sport=$2, date=$3, time=$4, end_time=$5, venue=$6, price_aed=$7, total_spots=$8, spots_filled=$9, payment_link=$10, imported_revenue=$11
      WHERE id = $1`,
     [
       id,
       input.sport,
       input.date,
       input.time,
+      input.end_time || null,
       input.venue.trim(),
       input.price_aed,
       input.total_spots,

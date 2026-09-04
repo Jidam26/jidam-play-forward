@@ -70,7 +70,7 @@ export default async function PastGamesPage() {
           <div className="mt-3">
             <ExpenseList expenses={generalExpenses} />
           </div>
-          <p className="mt-2 text-sm font-semibold text-navy">Total: AED {generalTotal}</p>
+          <p className="mt-2 text-sm font-semibold text-navy">Total: AED {formatMoney(generalTotal)}</p>
           <div className="mt-4 border-t border-navy/10 pt-4">
             <ExpenseForm gameId={null} />
           </div>

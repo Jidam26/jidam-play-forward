@@ -3,10 +3,17 @@ import { requireAdmin } from "@/lib/session";
 import { listUpcomingGames, listCancelledGames, type Game } from "@/lib/repositories/games";
 import { listAttendeesForGame, type Attendee } from "@/lib/repositories/bookings";
 import { listPendingPlanPurchases } from "@/lib/repositories/planPurchases";
+import { listMemberOptions } from "@/lib/repositories/users";
 import { AdminGameCard } from "@/components/AdminGameCard";
 import { CancelGameButton } from "@/components/CancelGameButton";
 import { PendingPlanPurchases } from "@/components/PendingPlanPurchases";
+import { AddAttendeeForm } from "@/components/AddAttendeeForm";
 import { NavBar } from "@/components/NavBar";
+
+function formatDate(dateStr: string) {
+  const date = new Date(`${dateStr}T00:00:00`);
+  return date.toLocaleDateString("en-AE", { weekday: "short", day: "numeric", month: "short" });
+}
 
 async function attendeesFor(games: Game[]): Promise<Map<string, Attendee[]>> {
   return new Map(await Promise.all(games.map(async (g): Promise<[string, Attendee[]]> => [g.id, await listAttendeesForGame(g.id)])));
@@ -14,10 +21,11 @@ async function attendeesFor(games: Game[]): Promise<Map<string, Attendee[]>> {
 
 export default async function AdminDashboardPage() {
   const session = await requireAdmin();
-  const [liveGames, cancelledGames, pendingPlanPurchases] = await Promise.all([
+  const [liveGames, cancelledGames, pendingPlanPurchases, memberOptions] = await Promise.all([
     listUpcomingGames(),
     listCancelledGames(),
     listPendingPlanPurchases(),
+    listMemberOptions(),
   ]);
   const [liveAttendees, cancelledAttendees] = await Promise.all([attendeesFor(liveGames), attendeesFor(cancelledGames)]);
 
@@ -62,6 +70,15 @@ export default async function AdminDashboardPage() {
                 game={game}
                 attendees={liveAttendees.get(game.id) ?? []}
                 actions={<CancelGameButton gameId={game.id} />}
+                footer={
+                  <div className="mt-4 border-t border-navy/10 pt-4">
+                    <AddAttendeeForm
+                      gameId={game.id}
+                      gameLabel={`${game.sport} on ${formatDate(game.date)}`}
+                      memberOptions={memberOptions}
+                    />
+                  </div>
+                }
               />
             ))}
           </div>

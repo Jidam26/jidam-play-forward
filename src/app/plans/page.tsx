@@ -1,6 +1,6 @@
 import { requireSession } from "@/lib/session";
 import { listActivePlans } from "@/lib/repositories/plans";
-import { listPlanPurchasesForUser, getCreditBalances } from "@/lib/repositories/planPurchases";
+import { listPlanPurchasesForUser, getCreditBalances, getActiveSubscriptions } from "@/lib/repositories/planPurchases";
 import { formatMoney } from "@/lib/money";
 import { NavBar } from "@/components/NavBar";
 import { SportBadge } from "@/components/SportBadge";
@@ -8,10 +8,11 @@ import { RequestPlanForm } from "@/components/RequestPlanForm";
 
 export default async function PlansPage() {
   const session = await requireSession();
-  const [plans, myPurchases, creditBalances] = await Promise.all([
+  const [plans, myPurchases, creditBalances, activeSubscriptions] = await Promise.all([
     listActivePlans(),
     listPlanPurchasesForUser(session.id),
     getCreditBalances(session.id),
+    getActiveSubscriptions(session.id),
   ]);
 
   // A pending or paid request for a plan already covers it -- no need to buy it twice.
@@ -27,12 +28,21 @@ export default async function PlansPage() {
           confirms your spot instantly.
         </p>
 
-        {creditBalances.size > 0 && (
+        {(creditBalances.size > 0 || activeSubscriptions.size > 0) && (
           <div className="mt-6 flex flex-wrap gap-3">
             {[...creditBalances.entries()].map(([sport, balance]) => (
               <div key={sport} className="rounded-2xl border border-navy/10 bg-white px-5 py-3 shadow-sm">
                 <SportBadge sport={sport} />
                 <p className="mt-1 text-lg font-extrabold text-navy">{balance} credit{balance === 1 ? "" : "s"}</p>
+              </div>
+            ))}
+            {[...activeSubscriptions.entries()].map(([sport, validUntil]) => (
+              <div key={sport} className="rounded-2xl border border-navy/10 bg-white px-5 py-3 shadow-sm">
+                <SportBadge sport={sport} />
+                <p className="mt-1 text-sm font-semibold text-navy">
+                  Subscribed until{" "}
+                  {new Date(`${validUntil}T00:00:00`).toLocaleDateString("en-AE", { day: "numeric", month: "short" })}
+                </p>
               </div>
             ))}
           </div>
@@ -46,7 +56,9 @@ export default async function PlansPage() {
               <div key={plan.id} className="rounded-2xl border border-navy/10 bg-white p-5 shadow-sm">
                 <SportBadge sport={plan.sport} />
                 <p className="mt-2 font-bold text-navy">{plan.name}</p>
-                <p className="text-sm text-navy/70">{plan.games_included} games</p>
+                <p className="text-sm text-navy/70">
+                  {plan.plan_type === "subscription" ? `Unlimited games for ${plan.duration_days} days` : `${plan.games_included} games`}
+                </p>
                 <p className="mt-1 text-2xl font-extrabold text-navy">AED {formatMoney(plan.price_aed)}</p>
                 <div className="mt-4">
                   <RequestPlanForm
@@ -73,7 +85,8 @@ export default async function PlansPage() {
                   <div>
                     <SportBadge sport={p.sport} />
                     <p className="mt-2 font-bold text-navy">
-                      {p.games_included} games &middot; AED {formatMoney(p.price_aed)}
+                      {p.plan_type === "subscription" ? `Unlimited for ${p.duration_days} days` : `${p.games_included} games`}{" "}
+                      &middot; AED {formatMoney(p.price_aed)}
                     </p>
                   </div>
                   <span

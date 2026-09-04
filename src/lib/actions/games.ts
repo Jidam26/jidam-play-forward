@@ -9,15 +9,21 @@ import { logActivity } from "@/lib/repositories/activity";
 
 export type FormState = { error?: string };
 
-const publishGameSchema = z.object({
+const baseGameSchema = z.object({
   sport: z.string().trim().min(2, "Please choose or enter a sport."),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Please choose a valid date."),
-  time: z.string().regex(/^\d{2}:\d{2}$/, "Please choose a valid time."),
+  time: z.string().regex(/^\d{2}:\d{2}$/, "Please choose a valid start time."),
+  end_time: z.string().regex(/^\d{2}:\d{2}$/, "Please choose a valid end time."),
   venue: z.string().trim().min(2, "Please enter a venue."),
   price_aed: z.coerce.number().min(0, "Price can't be negative."),
   total_spots: z.coerce.number().int().min(1, "There must be at least 1 spot."),
   payment_link: z.union([z.string().trim().url("Please enter a valid payment link."), z.literal("")]).optional(),
 });
+
+const timeOrderRefinement = (data: { time: string; end_time: string }) => data.end_time > data.time;
+const timeOrderMessage = { message: "End time must be after the start time.", path: ["end_time"] };
+
+const publishGameSchema = baseGameSchema.refine(timeOrderRefinement, timeOrderMessage);
 
 export async function publishGameAction(_prevState: FormState, formData: FormData): Promise<FormState> {
   const session = await requireAdmin();
@@ -26,6 +32,7 @@ export async function publishGameAction(_prevState: FormState, formData: FormDat
     sport: formData.get("sport"),
     date: formData.get("date"),
     time: formData.get("time"),
+    end_time: formData.get("end_time"),
     venue: formData.get("venue"),
     price_aed: formData.get("price_aed"),
     total_spots: formData.get("total_spots"),
@@ -49,10 +56,12 @@ export async function publishGameAction(_prevState: FormState, formData: FormDat
   redirect("/admin");
 }
 
-const editGameSchema = publishGameSchema.extend({
-  spots_filled: z.coerce.number().int().min(0, "Can't be negative."),
-  imported_revenue: z.union([z.coerce.number().min(0), z.literal("")]).optional(),
-});
+const editGameSchema = baseGameSchema
+  .extend({
+    spots_filled: z.coerce.number().int().min(0, "Can't be negative."),
+    imported_revenue: z.union([z.coerce.number().min(0), z.literal("")]).optional(),
+  })
+  .refine(timeOrderRefinement, timeOrderMessage);
 
 /**
  * Admin-only: correct any of a past game's details -- e.g. a game logged
@@ -70,6 +79,7 @@ export async function updateGameAction(gameId: string, _prevState: FormState, fo
     sport: formData.get("sport"),
     date: formData.get("date"),
     time: formData.get("time"),
+    end_time: formData.get("end_time"),
     venue: formData.get("venue"),
     price_aed: formData.get("price_aed"),
     total_spots: formData.get("total_spots"),

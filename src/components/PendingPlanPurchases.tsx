@@ -25,10 +25,11 @@ export function PendingPlanPurchases({ purchases }: { purchases: PendingPlanPurc
                 {p.name} &middot; {p.email} &middot; {p.phone}
               </p>
               <p className="text-sm text-navy/70">
-                {p.games_included} games &middot; AED {formatMoney(p.price_aed)}
+                {p.plan_type === "subscription" ? `Unlimited for ${p.duration_days} days` : `${p.games_included} games`}{" "}
+                &middot; AED {formatMoney(p.price_aed)}
               </p>
             </div>
-            <form action={confirmPlanPurchaseAction.bind(null, p.id, p.name, p.plan_name)}>
+            <form action={confirmPlanPurchaseAction.bind(null, p.id, p.name, p.email, p.plan_name)}>
               <button
                 type="submit"
                 className="rounded-full bg-gold px-4 py-2 text-xs font-semibold text-navy hover:bg-gold-light"

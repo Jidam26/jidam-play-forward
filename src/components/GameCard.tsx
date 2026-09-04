@@ -1,5 +1,6 @@
 import type { Game } from "@/lib/repositories/games";
 import { formatMoney } from "@/lib/money";
+import { formatTimeRange } from "@/lib/time";
 import { ReserveForm } from "@/components/ReserveForm";
 import { SportBadge } from "@/components/SportBadge";
 
@@ -14,6 +15,7 @@ export function GameCard({
   paidAttendeeNames,
   waitlistPosition,
   creditBalance,
+  hasSubscription,
 }: {
   game: Game;
   alreadyBooked: boolean;
@@ -23,6 +25,8 @@ export function GameCard({
   waitlistPosition?: number;
   /** Remaining game credits the member has for this sport -- see games/page.tsx. */
   creditBalance?: number;
+  /** Whether the member has an active monthly subscription covering this sport -- see games/page.tsx. */
+  hasSubscription?: boolean;
 }) {
   const isFull = game.spots_filled >= game.total_spots;
 
@@ -37,7 +41,7 @@ export function GameCard({
 
       <div className="mt-3">
         <p className="text-lg font-bold text-navy">
-          {formatDate(game.date)} &middot; {game.time}
+          {formatDate(game.date)} &middot; {formatTimeRange(game.time, game.end_time)}
         </p>
         <p className="text-sm text-navy/70">{game.venue}</p>
       </div>
@@ -57,6 +61,7 @@ export function GameCard({
           gameLabel={`${game.sport} on ${formatDate(game.date)}`}
           waitlistPosition={waitlistPosition}
           creditBalance={creditBalance}
+          hasSubscription={hasSubscription}
         />
       </div>
 

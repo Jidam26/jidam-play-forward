@@ -51,7 +51,10 @@ export default async function AdminPlansPage() {
                   </div>
                   <p className="mt-2 font-bold text-navy">{plan.name}</p>
                   <p className="text-sm text-navy/70">
-                    {plan.games_included} games &middot; AED {formatMoney(plan.price_aed)}
+                    {plan.plan_type === "subscription"
+                      ? `Unlimited for ${plan.duration_days} days`
+                      : `${plan.games_included} games`}{" "}
+                    &middot; AED {formatMoney(plan.price_aed)}
                   </p>
                 </div>
                 <TogglePlanButton planId={plan.id} active={plan.active} />

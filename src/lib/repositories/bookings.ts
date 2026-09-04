@@ -1,14 +1,19 @@
 import { getPool, ensureDb } from "@/lib/db";
 import { randomUUID } from "node:crypto";
 import type { Game } from "@/lib/repositories/games";
+import { hasActiveSubscription } from "@/lib/repositories/planPurchases";
 
 export type Booking = {
   id: string;
-  user_id: string;
+  // Null for a walk-in (see addManualAttendee) -- walk_in_name is set
+  // instead. Exactly one of the two is ever set (DB-enforced).
+  user_id: string | null;
+  walk_in_name: string | null;
   game_id: string;
   payment_status: "reserved" | "paid";
   amount_paid: number;
   paid_via_credit: boolean;
+  paid_via_subscription: boolean;
   booking_date: string;
 };
 
@@ -144,6 +149,65 @@ export async function reserveSpotWithCredit(userId: string, gameId: string): Pro
   }
 }
 
+export type ReserveWithSubscriptionResult =
+  | { ok: true; booking: Booking }
+  | { ok: false; reason: "GAME_NOT_FOUND" | "GAME_FULL" | "ALREADY_BOOKED" | "NO_SUBSCRIPTION" };
+
+/**
+ * Reserve a spot covered by an active monthly subscription (see
+ * hasActiveSubscription) -- unlimited use while the subscription is valid,
+ * so unlike reserveSpotWithCredit there's no balance to check or debit.
+ */
+export async function reserveSpotWithSubscription(userId: string, gameId: string): Promise<ReserveWithSubscriptionResult> {
+  await ensureDb();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+
+    const gameRes = await client.query<Game>("SELECT * FROM games WHERE id = $1 FOR UPDATE", [gameId]);
+    const game = gameRes.rows[0];
+    if (!game) {
+      await client.query("ROLLBACK");
+      return { ok: false, reason: "GAME_NOT_FOUND" };
+    }
+
+    const existingRes = await client.query("SELECT id FROM bookings WHERE user_id = $1 AND game_id = $2", [userId, gameId]);
+    if ((existingRes.rowCount ?? 0) > 0) {
+      await client.query("ROLLBACK");
+      return { ok: false, reason: "ALREADY_BOOKED" };
+    }
+
+    if (!(await hasActiveSubscription(userId, game.sport))) {
+      await client.query("ROLLBACK");
+      return { ok: false, reason: "NO_SUBSCRIPTION" };
+    }
+
+    const updateRes = await client.query(
+      "UPDATE games SET spots_filled = spots_filled + 1 WHERE id = $1 AND spots_filled < total_spots",
+      [gameId]
+    );
+    if (updateRes.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return { ok: false, reason: "GAME_FULL" };
+    }
+
+    const id = randomUUID();
+    const bookingRes = await client.query<Booking>(
+      `INSERT INTO bookings (id, user_id, game_id, payment_status, amount_paid, paid_via_subscription)
+       VALUES ($1, $2, $3, 'paid', 0, true) RETURNING *`,
+      [id, userId, gameId]
+    );
+
+    await client.query("COMMIT");
+    return { ok: true, booking: bookingRes.rows[0] };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export type PromotedFromWaitlist = {
   userId: string;
   email: string;
@@ -151,6 +215,7 @@ export type PromotedFromWaitlist = {
   sport: string;
   date: string;
   time: string;
+  end_time: string | null;
   venue: string;
 };
 
@@ -210,6 +275,7 @@ export async function cancelBooking(userId: string, bookingId: string): Promise<
           userId: next.user_id,
           ...userRes.rows[0],
           sport: game.sport,
+          end_time: game.end_time,
           date: game.date,
           time: game.time,
           venue: game.venue,
@@ -278,6 +344,7 @@ export async function deleteAttendee(bookingId: string): Promise<DeleteAttendeeR
           userId: next.user_id,
           ...userRes.rows[0],
           sport: game.sport,
+          end_time: game.end_time,
           date: game.date,
           time: game.time,
           venue: game.venue,
@@ -295,10 +362,87 @@ export async function deleteAttendee(bookingId: string): Promise<DeleteAttendeeR
   }
 }
 
+export type AddManualAttendeeInput =
+  | { kind: "member"; userId: string; gameId: string }
+  | { kind: "walkin"; name: string; gameId: string };
+
+export type AddManualAttendeeResult =
+  | { ok: true; name: string }
+  | { ok: false; reason: "GAME_NOT_FOUND" | "GAME_FULL" | "ALREADY_BOOKED" };
+
+/**
+ * Admin-only: add someone directly to a game's roster -- either an existing
+ * member (real booking row, same as if they'd reserved it themselves) or a
+ * walk-in with just a name (no account created, see the walk_in_name column
+ * on bookings). Starts as 'reserved', same as a normal booking -- the admin
+ * marks it paid separately once payment is confirmed, via the existing
+ * "Mark as Paid" action.
+ */
+export async function addManualAttendee(input: AddManualAttendeeInput): Promise<AddManualAttendeeResult> {
+  await ensureDb();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+
+    const gameRes = await client.query<Game>("SELECT * FROM games WHERE id = $1 FOR UPDATE", [input.gameId]);
+    const game = gameRes.rows[0];
+    if (!game) {
+      await client.query("ROLLBACK");
+      return { ok: false, reason: "GAME_NOT_FOUND" };
+    }
+
+    let name: string;
+    if (input.kind === "member") {
+      const existingRes = await client.query(
+        "SELECT id FROM bookings WHERE user_id = $1 AND game_id = $2",
+        [input.userId, input.gameId]
+      );
+      if ((existingRes.rowCount ?? 0) > 0) {
+        await client.query("ROLLBACK");
+        return { ok: false, reason: "ALREADY_BOOKED" };
+      }
+      const userRes = await client.query<{ name: string }>("SELECT name FROM users WHERE id = $1", [input.userId]);
+      name = userRes.rows[0]?.name ?? "Member";
+    } else {
+      name = input.name;
+    }
+
+    const updateRes = await client.query(
+      "UPDATE games SET spots_filled = spots_filled + 1 WHERE id = $1 AND spots_filled < total_spots",
+      [input.gameId]
+    );
+    if (updateRes.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return { ok: false, reason: "GAME_FULL" };
+    }
+
+    if (input.kind === "member") {
+      await client.query(
+        `INSERT INTO bookings (id, user_id, game_id, payment_status, amount_paid) VALUES ($1, $2, $3, 'reserved', 0)`,
+        [randomUUID(), input.userId, input.gameId]
+      );
+    } else {
+      await client.query(
+        `INSERT INTO bookings (id, walk_in_name, game_id, payment_status, amount_paid) VALUES ($1, $2, $3, 'reserved', 0)`,
+        [randomUUID(), input.name, input.gameId]
+      );
+    }
+
+    await client.query("COMMIT");
+    return { ok: true, name };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export type BookingWithGame = Booking & {
   sport: string;
   date: string;
   time: string;
+  end_time: string | null;
   venue: string;
   price_aed: number;
   payment_link: string | null;
@@ -307,7 +451,7 @@ export type BookingWithGame = Booking & {
 export async function listBookingsForUser(userId: string): Promise<BookingWithGame[]> {
   await ensureDb();
   const { rows } = await getPool().query<BookingWithGame>(
-    `SELECT b.*, g.sport, g.date, g.time, g.venue, g.price_aed, g.payment_link
+    `SELECT b.*, g.sport, g.date, g.time, g.end_time, g.venue, g.price_aed, g.payment_link
      FROM bookings b JOIN games g ON g.id = b.game_id
      WHERE b.user_id = $1
      ORDER BY g.date ASC, g.time ASC`,
@@ -327,20 +471,26 @@ export async function markBookingPaid(bookingId: string, amountPaid: number): Pr
 
 export type Attendee = {
   booking_id: string;
+  user_id: string | null;
   name: string;
-  email: string;
-  phone: string;
+  /** Null for a walk-in -- there's no account, so no contact info to show. */
+  email: string | null;
+  phone: string | null;
+  /** True for a walk-in (see addManualAttendee) -- shown as a plain badge instead of email/phone. */
+  is_walk_in: boolean;
   payment_status: "reserved" | "paid";
   amount_paid: number;
   paid_via_credit: boolean;
+  paid_via_subscription: boolean;
   booking_date: string;
 };
 
 export async function listAttendeesForGame(gameId: string): Promise<Attendee[]> {
   await ensureDb();
   const { rows } = await getPool().query<Attendee>(
-    `SELECT b.id as booking_id, u.name, u.email, u.phone, b.payment_status, b.amount_paid, b.paid_via_credit, b.booking_date
-     FROM bookings b JOIN users u ON u.id = b.user_id
+    `SELECT b.id as booking_id, b.user_id, COALESCE(u.name, b.walk_in_name) as name, u.email, u.phone,
+       (u.id IS NULL) as is_walk_in, b.payment_status, b.amount_paid, b.paid_via_credit, b.paid_via_subscription, b.booking_date
+     FROM bookings b LEFT JOIN users u ON u.id = b.user_id
      WHERE b.game_id = $1
      ORDER BY b.booking_date ASC`,
     [gameId]
@@ -353,17 +503,18 @@ export async function listAttendeesForGame(gameId: string): Promise<Attendee[]> 
  * show members "who's playing" once *they* have a paid spot in that game.
  * Only names, never email/phone (those stay admin-only via
  * listAttendeesForGame), and only paid bookings -- someone who's merely
- * reserved but hasn't paid isn't shown as confirmed yet.
+ * reserved but hasn't paid isn't shown as confirmed yet. A paid walk-in
+ * shows up here by name too, same as anyone else.
  */
 export async function listPaidAttendeeNamesForGames(gameIds: string[]): Promise<Map<string, string[]>> {
   await ensureDb();
   const names = new Map<string, string[]>();
   if (gameIds.length === 0) return names;
   const { rows } = await getPool().query<{ game_id: string; name: string }>(
-    `SELECT b.game_id, u.name
-     FROM bookings b JOIN users u ON u.id = b.user_id
+    `SELECT b.game_id, COALESCE(u.name, b.walk_in_name) as name
+     FROM bookings b LEFT JOIN users u ON u.id = b.user_id
      WHERE b.game_id = ANY($1) AND b.payment_status = 'paid'
-     ORDER BY u.name ASC`,
+     ORDER BY name ASC`,
     [gameIds]
   );
   for (const row of rows) {

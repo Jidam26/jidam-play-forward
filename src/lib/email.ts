@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { formatTimeRange } from "@/lib/time";
 
 // ---------------------------------------------------------------------------
 // Transactional email via Resend (resend.com). Two env vars control it:
@@ -26,7 +27,14 @@ function getClient(): Resend | null {
   return client;
 }
 
-export async function sendEmail(to: string, subject: string, html: string): Promise<void> {
+export type EmailAttachment = { filename: string; content: Buffer };
+
+export async function sendEmail(
+  to: string,
+  subject: string,
+  html: string,
+  attachments?: EmailAttachment[]
+): Promise<void> {
   const resend = getClient();
   if (!resend) {
     // No key configured yet -- log enough to still test the flow (e.g. a
@@ -45,6 +53,7 @@ export async function sendEmail(to: string, subject: string, html: string): Prom
       to,
       subject,
       html,
+      attachments,
     });
     if (error) console.error(`[email] Resend rejected "${subject}" to ${to}:`, error);
   } catch (err) {
@@ -86,6 +95,7 @@ export function waitlistPromotionEmail(params: {
   sport: string;
   date: string;
   time: string;
+  end_time: string | null;
   venue: string;
 }): { subject: string; html: string } {
   const formattedDate = new Date(`${params.date}T00:00:00`).toLocaleDateString("en-AE", {
@@ -101,7 +111,7 @@ export function waitlistPromotionEmail(params: {
       <table style="width:100%; margin:16px 0; font-size:15px;">
         <tr><td style="color:#5b6472; padding:4px 0;">Sport</td><td style="font-weight:600;">${params.sport}</td></tr>
         <tr><td style="color:#5b6472; padding:4px 0;">Date</td><td style="font-weight:600;">${formattedDate}</td></tr>
-        <tr><td style="color:#5b6472; padding:4px 0;">Time</td><td style="font-weight:600;">${params.time}</td></tr>
+        <tr><td style="color:#5b6472; padding:4px 0;">Time</td><td style="font-weight:600;">${formatTimeRange(params.time, params.end_time)}</td></tr>
         <tr><td style="color:#5b6472; padding:4px 0;">Venue</td><td style="font-weight:600;">${params.venue}</td></tr>
       </table>
       <p style="color:#5b6472; font-size:14px;">You can view or manage your bookings any time under "My Bookings" on Jidam.</p>
@@ -113,6 +123,7 @@ export function bookingConfirmationEmail(params: {
   sport: string;
   date: string;
   time: string;
+  end_time: string | null;
   venue: string;
 }): { subject: string; html: string } {
   const formattedDate = new Date(`${params.date}T00:00:00`).toLocaleDateString("en-AE", {
@@ -128,10 +139,28 @@ export function bookingConfirmationEmail(params: {
       <table style="width:100%; margin:16px 0; font-size:15px;">
         <tr><td style="color:#5b6472; padding:4px 0;">Sport</td><td style="font-weight:600;">${params.sport}</td></tr>
         <tr><td style="color:#5b6472; padding:4px 0;">Date</td><td style="font-weight:600;">${formattedDate}</td></tr>
-        <tr><td style="color:#5b6472; padding:4px 0;">Time</td><td style="font-weight:600;">${params.time}</td></tr>
+        <tr><td style="color:#5b6472; padding:4px 0;">Time</td><td style="font-weight:600;">${formatTimeRange(params.time, params.end_time)}</td></tr>
         <tr><td style="color:#5b6472; padding:4px 0;">Venue</td><td style="font-weight:600;">${params.venue}</td></tr>
       </table>
       <p style="color:#5b6472; font-size:14px;">You can view or manage your bookings any time under "My Bookings" on Jidam.</p>
+    `),
+  };
+}
+
+/** Sent alongside the PDF attachment the moment a payment is confirmed -- see repositories/receipts.ts. */
+export function receiptEmail(params: { receiptNumber: string; description: string; amountAed: number }): {
+  subject: string;
+  html: string;
+} {
+  return {
+    subject: `Receipt ${params.receiptNumber} — Jidam`,
+    html: emailShell(`
+      <p>Thanks for your payment! Your receipt is attached as a PDF for your records.</p>
+      <table style="width:100%; margin:16px 0; font-size:15px;">
+        <tr><td style="color:#5b6472; padding:4px 0;">Receipt No.</td><td style="font-weight:600;">${params.receiptNumber}</td></tr>
+        <tr><td style="color:#5b6472; padding:4px 0;">For</td><td style="font-weight:600;">${params.description}</td></tr>
+        <tr><td style="color:#5b6472; padding:4px 0;">Amount</td><td style="font-weight:600;">AED ${params.amountAed.toFixed(2)}</td></tr>
+      </table>
     `),
   };
 }

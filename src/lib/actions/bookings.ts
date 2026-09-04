@@ -2,11 +2,20 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin, requireSession } from "@/lib/session";
-import { cancelBooking, deleteAttendee, markBookingPaid, reserveSpot, reserveSpotWithCredit } from "@/lib/repositories/bookings";
+import {
+  cancelBooking,
+  deleteAttendee,
+  markBookingPaid,
+  reserveSpot,
+  reserveSpotWithCredit,
+  reserveSpotWithSubscription,
+  addManualAttendee,
+} from "@/lib/repositories/bookings";
 import { joinWaitlist, leaveWaitlist } from "@/lib/repositories/waitlist";
 import { findGameById } from "@/lib/repositories/games";
 import { sendEmail, bookingConfirmationEmail, waitlistPromotionEmail } from "@/lib/email";
 import { logActivity } from "@/lib/repositories/activity";
+import { issueAndEmailReceipt } from "@/lib/receiptIssuer";
 
 export type ReserveState = { error?: string; success?: boolean };
 
@@ -46,15 +55,19 @@ export async function reserveSpotAction(_prevState: ReserveState, formData: Form
 /**
  * Admin-only: confirm a booking as paid after reviewing the member's
  * WhatsApp payment screenshot (there's no automated payment webhook --
- * see src/lib/config.ts). Bound to a specific bookingId/amount/attendee/game
- * via `.bind(null, bookingId, amount, attendeeName, gameLabel, gameId)`
+ * see src/lib/config.ts). Bound to a specific booking/attendee/game via
+ * `.bind(null, bookingId, amount, attendeeName, attendeeEmail, attendeeUserId, gameLabel, gameId)`
  * where it's used as a form action -- see AdminGameCard. Logged to the
- * boss-only activity log so the boss can see who confirmed which payment.
+ * boss-only activity log so the boss can see who confirmed which payment,
+ * and issues a permanent receipt (emailed as a PDF if there's an address on
+ * file -- walk-ins have none, so they get the ledger entry but no email).
  */
 export async function markPaidAction(
   bookingId: string,
   amount: number,
   attendeeName: string,
+  attendeeEmail: string | null,
+  attendeeUserId: string | null,
   gameLabel: string,
   gameId: string
 ): Promise<void> {
@@ -66,6 +79,15 @@ export async function markPaidAction(
     `Marked ${attendeeName} as paid (AED ${amount}) for ${gameLabel}`,
     gameId
   );
+  await issueAndEmailReceipt({
+    userId: attendeeUserId,
+    memberName: attendeeName,
+    memberEmail: attendeeEmail,
+    description: gameLabel,
+    amountAed: amount,
+    source: "booking",
+    sourceId: bookingId,
+  });
   revalidatePath("/admin");
 }
 
@@ -104,6 +126,88 @@ export async function reserveSpotWithCreditAction(
     await sendEmail(session.email, subject, html);
   }
 
+  return { success: true };
+}
+
+export type ReserveWithSubscriptionState = { error?: string; success?: boolean };
+
+/** Reserve a spot covered by an active monthly subscription -- see reserveSpotWithSubscription. */
+export async function reserveSpotWithSubscriptionAction(
+  _prevState: ReserveWithSubscriptionState,
+  formData: FormData
+): Promise<ReserveWithSubscriptionState> {
+  const session = await requireSession();
+  const gameId = String(formData.get("gameId") ?? "");
+  if (!gameId) return { error: "Missing game." };
+
+  const result = await reserveSpotWithSubscription(session.id, gameId);
+  if (!result.ok) {
+    switch (result.reason) {
+      case "GAME_FULL":
+        return { error: "Sorry, that game just filled up." };
+      case "ALREADY_BOOKED":
+        return { error: "You already have a spot in this game." };
+      case "GAME_NOT_FOUND":
+        return { error: "That game no longer exists." };
+      case "NO_SUBSCRIPTION":
+        return { error: "You don't have an active subscription for this sport." };
+    }
+  }
+
+  revalidatePath("/games");
+  revalidatePath("/bookings");
+  revalidatePath("/admin");
+
+  const game = await findGameById(gameId);
+  if (game) {
+    const { subject, html } = bookingConfirmationEmail(game);
+    await sendEmail(session.email, subject, html);
+  }
+
+  return { success: true };
+}
+
+export type AddAttendeeState = { error?: string; success?: boolean };
+
+/**
+ * Admin-only: add someone directly to a live/upcoming game's roster --
+ * either an existing member (pass memberId) or a walk-in (pass walkInName)
+ * -- see addManualAttendee. Bound to `.bind(null, gameId, gameLabel)` where
+ * it's used as a form action.
+ */
+export async function addAttendeeAction(
+  gameId: string,
+  gameLabel: string,
+  _prevState: AddAttendeeState,
+  formData: FormData
+): Promise<AddAttendeeState> {
+  const session = await requireAdmin();
+  const memberId = String(formData.get("memberId") ?? "").trim();
+  const walkInName = String(formData.get("walkInName") ?? "").trim();
+
+  if (!memberId && !walkInName) {
+    return { error: "Pick a member or enter a walk-in name." };
+  }
+
+  const result = await addManualAttendee(
+    memberId ? { kind: "member", userId: memberId, gameId } : { kind: "walkin", name: walkInName, gameId }
+  );
+  if (!result.ok) {
+    switch (result.reason) {
+      case "GAME_NOT_FOUND":
+        return { error: "That game no longer exists." };
+      case "GAME_FULL":
+        return { error: "That game is already full." };
+      case "ALREADY_BOOKED":
+        return { error: "That member already has a spot in this game." };
+    }
+  }
+
+  await logActivity(session.id, "player_added", `Added ${result.name} to ${gameLabel}`, gameId);
+
+  revalidatePath("/games");
+  revalidatePath("/bookings");
+  revalidatePath("/admin");
   return { success: true };
 }
 
