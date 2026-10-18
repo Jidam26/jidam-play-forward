@@ -6,6 +6,7 @@ import { formatTimeRange } from "@/lib/time";
 import { markPaidAction } from "@/lib/actions/bookings";
 import { SportBadge } from "@/components/SportBadge";
 import { DeleteAttendeeButton } from "@/components/DeleteAttendeeButton";
+import { ConductActions } from "@/components/ConductActions";
 
 function formatDate(dateStr: string) {
   const date = new Date(`${dateStr}T00:00:00`);
@@ -175,12 +176,17 @@ export function AdminGameCard({
                     </div>
                   </td>
                   <td className="py-2">
-                    <DeleteAttendeeButton
-                      bookingId={a.booking_id}
-                      attendeeName={a.name}
-                      gameLabel={`${game.sport} on ${formatDate(game.date)}`}
-                      gameId={game.id}
-                    />
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      {game.sport === "Football" && a.user_id && (
+                        <ConductActions gameId={game.id} userId={a.user_id} attendeeName={a.name} />
+                      )}
+                      <DeleteAttendeeButton
+                        bookingId={a.booking_id}
+                        attendeeName={a.name}
+                        gameLabel={`${game.sport} on ${formatDate(game.date)}`}
+                        gameId={game.id}
+                      />
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -4,11 +4,19 @@ import { listPastGames } from "@/lib/repositories/games";
 import { listAttendeesForGame, totalRevenueByGame, type Attendee } from "@/lib/repositories/bookings";
 import { listExpensesForGame, listGeneralExpenses, type Expense } from "@/lib/repositories/expenses";
 import { listImportedAttendeesForGames } from "@/lib/repositories/importedAttendees";
+import { listMemberOptions } from "@/lib/repositories/users";
 import { formatMoney } from "@/lib/money";
 import { AdminGameCard } from "@/components/AdminGameCard";
 import { ExpenseForm } from "@/components/ExpenseForm";
 import { DeleteExpenseButton } from "@/components/DeleteExpenseButton";
+import { DeleteGameButton } from "@/components/DeleteGameButton";
+import { AddPastAttendeeForm } from "@/components/AddPastAttendeeForm";
 import { NavBar } from "@/components/NavBar";
+
+function formatDate(dateStr: string) {
+  const date = new Date(`${dateStr}T00:00:00`);
+  return date.toLocaleDateString("en-AE", { weekday: "short", day: "numeric", month: "short" });
+}
 
 function formatExpenseDate(dateStr: string) {
   return new Date(`${dateStr}T00:00:00`).toLocaleDateString("en-AE", { day: "numeric", month: "short", year: "numeric" });
@@ -23,6 +31,17 @@ function ExpenseList({ expenses }: { expenses: Expense[] }) {
           <span className="text-navy/80">
             {e.description}
             {e.date && <span className="ml-2 text-xs text-navy/40">{formatExpenseDate(e.date)}</span>}
+            {e.has_attachment && (
+              <a
+                href={`/api/expenses/${e.id}/attachment`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ml-2 text-xs font-semibold text-navy/50 hover:text-gold"
+                title="View attached receipt"
+              >
+                📎 Receipt
+              </a>
+            )}
           </span>
           <span className="flex items-center gap-3">
             <span className="font-medium text-navy">AED {formatMoney(e.amount)}</span>
@@ -39,11 +58,12 @@ export default async function PastGamesPage() {
   const games = await listPastGames();
   const gameIds = games.map((g) => g.id);
 
-  const [attendeesEntries, expensesEntries, revenueByGame, importedAttendeesByGame] = await Promise.all([
+  const [attendeesEntries, expensesEntries, revenueByGame, importedAttendeesByGame, memberOptions] = await Promise.all([
     Promise.all(games.map(async (g): Promise<[string, Attendee[]]> => [g.id, await listAttendeesForGame(g.id)])),
     Promise.all(games.map(async (g): Promise<[string, Expense[]]> => [g.id, await listExpensesForGame(g.id)])),
     totalRevenueByGame(gameIds),
     listImportedAttendeesForGames(gameIds),
+    listMemberOptions(),
   ]);
   const attendeesByGame = new Map(attendeesEntries);
   const expensesByGame = new Map(expensesEntries);
@@ -96,16 +116,28 @@ export default async function PastGamesPage() {
                   attendees={attendeesByGame.get(game.id) ?? []}
                   importedAttendees={importedAttendeesByGame.get(game.id)}
                   actions={
-                    <Link
-                      href={`/admin/past/${game.id}/edit`}
-                      className="rounded-full border border-navy/20 px-3 py-1 text-xs font-semibold text-navy hover:bg-navy/5"
-                    >
-                      Edit
-                    </Link>
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href={`/admin/past/${game.id}/edit`}
+                        className="rounded-full border border-navy/20 px-3 py-1 text-xs font-semibold text-navy hover:bg-navy/5"
+                      >
+                        Edit
+                      </Link>
+                      <DeleteGameButton
+                        gameId={game.id}
+                        gameLabel={`${game.sport} on ${formatDate(game.date)} at ${game.venue}`}
+                      />
+                    </div>
                   }
                   footer={
                     <div className="mt-4 border-t border-navy/10 pt-4">
-                      <h3 className="text-sm font-semibold text-navy">Expenses</h3>
+                      <AddPastAttendeeForm
+                        gameId={game.id}
+                        gameLabel={`${game.sport} on ${formatDate(game.date)}`}
+                        memberOptions={memberOptions}
+                        defaultAmount={game.price_aed}
+                      />
+                      <h3 className="mt-4 text-sm font-semibold text-navy">Expenses</h3>
                       <div className="mt-2">
                         <ExpenseList expenses={expenses} />
                       </div>

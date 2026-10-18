@@ -156,3 +156,31 @@ export async function cancelGame(id: string): Promise<void> {
   await ensureDb();
   await getPool().query("UPDATE games SET status = 'cancelled' WHERE id = $1", [id]);
 }
+
+/**
+ * Permanently delete a game -- unlike cancelGame, there's no going back.
+ * bookings.game_id has no ON DELETE clause (RESTRICT), so those have to go
+ * first; expenses.game_id is ON DELETE SET NULL, which would silently turn
+ * this game's costs into "general" expenses instead of removing them, so
+ * those are deleted explicitly too. waitlist_entries and imported_attendees
+ * cascade automatically. Receipts already issued have no FK to games at
+ * all (see the comment on that table in src/lib/db.ts) -- deliberately
+ * untouched, since a payment record must survive deletion of whatever
+ * generated it.
+ */
+export async function deleteGame(id: string): Promise<void> {
+  await ensureDb();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM bookings WHERE game_id = $1", [id]);
+    await client.query("DELETE FROM expenses WHERE game_id = $1", [id]);
+    await client.query("DELETE FROM games WHERE id = $1", [id]);
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}

@@ -304,6 +304,36 @@ async function migrate(client: PoolClient) {
     ALTER TABLE plan_purchases ADD COLUMN IF NOT EXISTS duration_days INTEGER;
     ALTER TABLE plan_purchases ADD COLUMN IF NOT EXISTS valid_until TEXT;
     ALTER TABLE plan_purchases ALTER COLUMN games_included DROP NOT NULL;
+    -- Optional proof photo/PDF of an expense (e.g. a screenshot of the court
+    -- booking receipt) -- stored directly in the row rather than a separate
+    -- file host, since this app has no other file storage. Nullable: most
+    -- expenses, especially older ones, have none.
+    ALTER TABLE expenses ADD COLUMN IF NOT EXISTS attachment_data BYTEA;
+    ALTER TABLE expenses ADD COLUMN IF NOT EXISTS attachment_content_type TEXT;
+    ALTER TABLE expenses ADD COLUMN IF NOT EXISTS attachment_filename TEXT;
+
+    -- Football conduct tracking (see repositories/conduct.ts): every row is
+    -- an admin-confirmed incident, never an automatic one -- there's no
+    -- clock-based detection of a real-world late arrival, so an admin
+    -- always clicks to log it. 'late_fine' carries fine_amount_aed and
+    -- fine_paid (blocks new Football bookings while unpaid, see
+    -- reserveSpot/reserveSpotWithCredit/reserveSpotWithSubscription);
+    -- 'late_cancel_warning' and 'no_show' carry reviewed_at instead --
+    -- null means it still counts toward the Flagged for Review list, set
+    -- (by "Remove from Football" or "Dismiss") means it's been handled.
+    -- game_id is nullable/SET NULL -- the incident and its fine/warning
+    -- stay meaningful even if that game is later deleted.
+    CREATE TABLE IF NOT EXISTS conduct_incidents (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      game_id TEXT REFERENCES games(id) ON DELETE SET NULL,
+      type TEXT NOT NULL CHECK (type IN ('late_fine', 'late_cancel_warning', 'no_show')),
+      fine_amount_aed DOUBLE PRECISION,
+      fine_paid BOOLEAN NOT NULL DEFAULT false,
+      reviewed_at TEXT,
+      note TEXT,
+      created_at TEXT NOT NULL DEFAULT (now()::text)
+    );
   `);
 
   // A booking is either a real member's (user_id set) or a walk-in's
@@ -606,12 +636,16 @@ async function importDetailedGamesV2IfNeeded(client: PoolClient) {
     const playedCount = (attendees: ImportedAttendee[] | undefined): number =>
       attendees ? attendees.filter((a) => !a.waitlist).length : 0;
 
+    // Note: operatorCut/otherCost on the source records are NOT inserted as
+    // expenses here -- they aren't real costs (nothing in the actual
+    // accounting records them as money spent), so counting them would
+    // understate profit relative to the real books. Only Court/Water/Venue
+    // cost -- genuine real-world spend -- become expense rows.
     for (const g of IMPORTED_FOOTBALL_V2) {
       const attendees = IMPORTED_FOOTBALL_ATTENDEES_V2[g.date];
       const id = await insertGame("Football", g.date, "19:00", g.venue, g.price, g.totalSpots, g.revenue, playedCount(attendees));
       await insertExpense(id, "Court hire", g.court);
       await insertExpense(id, "Water", g.water);
-      if (g.operatorCut > 0) await insertExpense(id, "Operator cut", g.operatorCut);
       await insertAttendees(id, attendees);
     }
 
@@ -619,11 +653,35 @@ async function importDetailedGamesV2IfNeeded(client: PoolClient) {
       const attendees = IMPORTED_VOLLEYBALL_ATTENDEES_V2[g.session];
       const id = await insertGame("Volleyball", g.date, g.time, g.venue, g.fee, g.totalSpots, g.revenue, playedCount(attendees));
       await insertExpense(id, "Venue cost", g.venueCost);
-      if (g.operatorCut > 0) await insertExpense(id, "Operator cut", g.operatorCut);
-      if (g.otherCost > 0) await insertExpense(id, "Other cost", g.otherCost);
       await insertAttendees(id, attendees);
     }
 
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// One-time cleanup for databases that already ran importDetailedGamesV2IfNeeded
+// before it stopped inserting "Operator cut"/"Other cost" expense rows (see
+// above). Those two description strings are unique to that import -- nothing
+// else in the app ever creates an expense with that exact text -- so it's
+// safe to delete every row with them, wherever this database is in its
+// history. Gated so it's a no-op after the first run.
+// ---------------------------------------------------------------------------
+async function removeOperatorCutExpensesIfNeeded(client: PoolClient) {
+  await client.query("BEGIN");
+  try {
+    const gate = await client.query(
+      `INSERT INTO app_meta (key, value) VALUES ('removed_operator_cut_expenses_v1', '1') ON CONFLICT (key) DO NOTHING RETURNING key`
+    );
+    if (gate.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return;
+    }
+    await client.query(`DELETE FROM expenses WHERE description IN ('Operator cut', 'Other cost')`);
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK");
@@ -645,6 +703,7 @@ export function ensureDb(): Promise<void> {
         await purgeDemoDataIfNeeded(client);
         await importRealGamesIfNeeded(client);
         await importDetailedGamesV2IfNeeded(client);
+        await removeOperatorCutExpensesIfNeeded(client);
       } finally {
         client.release();
       }

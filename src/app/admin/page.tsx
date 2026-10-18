@@ -4,10 +4,13 @@ import { listUpcomingGames, listCancelledGames, type Game } from "@/lib/reposito
 import { listAttendeesForGame, type Attendee } from "@/lib/repositories/bookings";
 import { listPendingPlanPurchases } from "@/lib/repositories/planPurchases";
 import { listMemberOptions } from "@/lib/repositories/users";
+import { listFlaggedMembers } from "@/lib/repositories/conduct";
 import { AdminGameCard } from "@/components/AdminGameCard";
 import { CancelGameButton } from "@/components/CancelGameButton";
 import { PendingPlanPurchases } from "@/components/PendingPlanPurchases";
 import { AddAttendeeForm } from "@/components/AddAttendeeForm";
+import { DeleteGameButton } from "@/components/DeleteGameButton";
+import { FlaggedMembersSection } from "@/components/FlaggedMembersSection";
 import { NavBar } from "@/components/NavBar";
 
 function formatDate(dateStr: string) {
@@ -21,11 +24,12 @@ async function attendeesFor(games: Game[]): Promise<Map<string, Attendee[]>> {
 
 export default async function AdminDashboardPage() {
   const session = await requireAdmin();
-  const [liveGames, cancelledGames, pendingPlanPurchases, memberOptions] = await Promise.all([
+  const [liveGames, cancelledGames, pendingPlanPurchases, memberOptions, flaggedMembers] = await Promise.all([
     listUpcomingGames(),
     listCancelledGames(),
     listPendingPlanPurchases(),
     listMemberOptions(),
+    listFlaggedMembers(),
   ]);
   const [liveAttendees, cancelledAttendees] = await Promise.all([attendeesFor(liveGames), attendeesFor(cancelledGames)]);
 
@@ -58,6 +62,7 @@ export default async function AdminDashboardPage() {
         </div>
 
         <PendingPlanPurchases purchases={pendingPlanPurchases} />
+        <FlaggedMembersSection members={flaggedMembers} />
 
         <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-navy/50">Live</h2>
         {liveGames.length === 0 ? (
@@ -69,7 +74,15 @@ export default async function AdminDashboardPage() {
                 key={game.id}
                 game={game}
                 attendees={liveAttendees.get(game.id) ?? []}
-                actions={<CancelGameButton gameId={game.id} />}
+                actions={
+                  <div className="flex items-center gap-2">
+                    <CancelGameButton gameId={game.id} />
+                    <DeleteGameButton
+                      gameId={game.id}
+                      gameLabel={`${game.sport} on ${formatDate(game.date)} at ${game.venue}`}
+                    />
+                  </div>
+                }
                 footer={
                   <div className="mt-4 border-t border-navy/10 pt-4">
                     <AddAttendeeForm
@@ -92,7 +105,17 @@ export default async function AdminDashboardPage() {
             </p>
             <div className="mt-3 space-y-6">
               {cancelledGames.map((game) => (
-                <AdminGameCard key={game.id} game={game} attendees={cancelledAttendees.get(game.id) ?? []} />
+                <AdminGameCard
+                  key={game.id}
+                  game={game}
+                  attendees={cancelledAttendees.get(game.id) ?? []}
+                  actions={
+                    <DeleteGameButton
+                      gameId={game.id}
+                      gameLabel={`${game.sport} on ${formatDate(game.date)} at ${game.venue}`}
+                    />
+                  }
+                />
               ))}
             </div>
           </>

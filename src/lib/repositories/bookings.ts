@@ -1,7 +1,24 @@
 import { getPool, ensureDb } from "@/lib/db";
+import type { PoolClient } from "pg";
 import { randomUUID } from "node:crypto";
 import type { Game } from "@/lib/repositories/games";
 import { hasActiveSubscription } from "@/lib/repositories/planPurchases";
+
+/**
+ * Football-only conduct enforcement (see repositories/conduct.ts): any
+ * unpaid late-arrival fine blocks a new Football booking until it's paid.
+ * Queried directly here (not via getConductSummary) to stay inside the
+ * same transaction/client as the rest of the reserve flow.
+ */
+async function hasUnpaidFootballFine(client: PoolClient, userId: string, sport: string): Promise<boolean> {
+  if (sport !== "Football") return false;
+  const { rows } = await client.query<{ total: number }>(
+    `SELECT COALESCE(SUM(fine_amount_aed), 0) as total FROM conduct_incidents
+     WHERE user_id = $1 AND type = 'late_fine' AND fine_paid = false`,
+    [userId]
+  );
+  return Number(rows[0]?.total ?? 0) > 0;
+}
 
 export type Booking = {
   id: string;
@@ -19,7 +36,7 @@ export type Booking = {
 
 export type ReserveResult =
   | { ok: true; booking: Booking }
-  | { ok: false; reason: "GAME_NOT_FOUND" | "GAME_FULL" | "ALREADY_BOOKED" };
+  | { ok: false; reason: "GAME_NOT_FOUND" | "GAME_FULL" | "ALREADY_BOOKED" | "FINE_UNPAID" };
 
 /**
  * Reserve one spot on a game for a user, atomically.
@@ -42,6 +59,11 @@ export async function reserveSpot(userId: string, gameId: string): Promise<Reser
     if (!game) {
       await client.query("ROLLBACK");
       return { ok: false, reason: "GAME_NOT_FOUND" };
+    }
+
+    if (await hasUnpaidFootballFine(client, userId, game.sport)) {
+      await client.query("ROLLBACK");
+      return { ok: false, reason: "FINE_UNPAID" };
     }
 
     const existingRes = await client.query(
@@ -80,7 +102,7 @@ export async function reserveSpot(userId: string, gameId: string): Promise<Reser
 
 export type ReserveWithCreditResult =
   | { ok: true; booking: Booking }
-  | { ok: false; reason: "GAME_NOT_FOUND" | "GAME_FULL" | "ALREADY_BOOKED" | "NO_CREDIT" };
+  | { ok: false; reason: "GAME_NOT_FOUND" | "GAME_FULL" | "ALREADY_BOOKED" | "NO_CREDIT" | "FINE_UNPAID" };
 
 /**
  * Reserve a spot using a game credit instead of the manual payment-link
@@ -101,6 +123,11 @@ export async function reserveSpotWithCredit(userId: string, gameId: string): Pro
     if (!game) {
       await client.query("ROLLBACK");
       return { ok: false, reason: "GAME_NOT_FOUND" };
+    }
+
+    if (await hasUnpaidFootballFine(client, userId, game.sport)) {
+      await client.query("ROLLBACK");
+      return { ok: false, reason: "FINE_UNPAID" };
     }
 
     const existingRes = await client.query("SELECT id FROM bookings WHERE user_id = $1 AND game_id = $2", [userId, gameId]);
@@ -151,7 +178,7 @@ export async function reserveSpotWithCredit(userId: string, gameId: string): Pro
 
 export type ReserveWithSubscriptionResult =
   | { ok: true; booking: Booking }
-  | { ok: false; reason: "GAME_NOT_FOUND" | "GAME_FULL" | "ALREADY_BOOKED" | "NO_SUBSCRIPTION" };
+  | { ok: false; reason: "GAME_NOT_FOUND" | "GAME_FULL" | "ALREADY_BOOKED" | "NO_SUBSCRIPTION" | "FINE_UNPAID" };
 
 /**
  * Reserve a spot covered by an active monthly subscription (see
@@ -169,6 +196,11 @@ export async function reserveSpotWithSubscription(userId: string, gameId: string
     if (!game) {
       await client.query("ROLLBACK");
       return { ok: false, reason: "GAME_NOT_FOUND" };
+    }
+
+    if (await hasUnpaidFootballFine(client, userId, game.sport)) {
+      await client.query("ROLLBACK");
+      return { ok: false, reason: "FINE_UNPAID" };
     }
 
     const existingRes = await client.query("SELECT id FROM bookings WHERE user_id = $1 AND game_id = $2", [userId, gameId]);
@@ -363,20 +395,21 @@ export async function deleteAttendee(bookingId: string): Promise<DeleteAttendeeR
 }
 
 export type AddManualAttendeeInput =
-  | { kind: "member"; userId: string; gameId: string }
-  | { kind: "walkin"; name: string; gameId: string };
+  | { kind: "member"; userId: string; gameId: string; paidAmount?: number }
+  | { kind: "walkin"; name: string; gameId: string; paidAmount?: number };
 
 export type AddManualAttendeeResult =
-  | { ok: true; name: string }
+  | { ok: true; name: string; bookingId: string }
   | { ok: false; reason: "GAME_NOT_FOUND" | "GAME_FULL" | "ALREADY_BOOKED" };
 
 /**
  * Admin-only: add someone directly to a game's roster -- either an existing
  * member (real booking row, same as if they'd reserved it themselves) or a
  * walk-in with just a name (no account created, see the walk_in_name column
- * on bookings). Starts as 'reserved', same as a normal booking -- the admin
- * marks it paid separately once payment is confirmed, via the existing
- * "Mark as Paid" action.
+ * on bookings). By default starts as 'reserved' (same as a normal booking --
+ * the admin marks it paid separately via the existing "Mark as Paid"
+ * action), but pass `paidAmount` to insert it already marked 'paid' -- used
+ * for past games, where there's no future spot left to just "reserve".
  */
 export async function addManualAttendee(input: AddManualAttendeeInput): Promise<AddManualAttendeeResult> {
   await ensureDb();
@@ -416,20 +449,25 @@ export async function addManualAttendee(input: AddManualAttendeeInput): Promise<
       return { ok: false, reason: "GAME_FULL" };
     }
 
+    const bookingId = randomUUID();
+    const paidAmount = input.paidAmount;
+    const status = paidAmount !== undefined ? "paid" : "reserved";
+    const amount = paidAmount ?? 0;
+
     if (input.kind === "member") {
       await client.query(
-        `INSERT INTO bookings (id, user_id, game_id, payment_status, amount_paid) VALUES ($1, $2, $3, 'reserved', 0)`,
-        [randomUUID(), input.userId, input.gameId]
+        `INSERT INTO bookings (id, user_id, game_id, payment_status, amount_paid) VALUES ($1, $2, $3, $4, $5)`,
+        [bookingId, input.userId, input.gameId, status, amount]
       );
     } else {
       await client.query(
-        `INSERT INTO bookings (id, walk_in_name, game_id, payment_status, amount_paid) VALUES ($1, $2, $3, 'reserved', 0)`,
-        [randomUUID(), input.name, input.gameId]
+        `INSERT INTO bookings (id, walk_in_name, game_id, payment_status, amount_paid) VALUES ($1, $2, $3, $4, $5)`,
+        [bookingId, input.name, input.gameId, status, amount]
       );
     }
 
     await client.query("COMMIT");
-    return { ok: true, name };
+    return { ok: true, name, bookingId };
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;

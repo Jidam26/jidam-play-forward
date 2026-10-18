@@ -5,7 +5,17 @@ export type ActivityEntry = {
   id: string;
   admin_id: string;
   admin_name: string;
-  action: "game_published" | "game_cancelled" | "payment_marked_paid" | "player_deleted" | "player_added";
+  action:
+    | "game_published"
+    | "game_cancelled"
+    | "game_deleted"
+    | "payment_marked_paid"
+    | "player_deleted"
+    | "player_added"
+    | "games_reset"
+    | "conduct_flagged"
+    | "conduct_reviewed"
+    | "fine_paid";
   game_id: string | null;
   description: string;
   created_at: string;

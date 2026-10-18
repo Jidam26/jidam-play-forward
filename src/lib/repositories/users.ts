@@ -103,6 +103,11 @@ export type MemberSummary = {
   created_at: string;
   total_bookings: number;
   total_paid: number;
+  // Football conduct standing -- see repositories/conduct.ts. warning_count
+  // and has_no_show only count still-open (unreviewed) incidents.
+  unpaid_fine_aed: number;
+  warning_count: number;
+  has_no_show: boolean;
 };
 
 /**
@@ -122,13 +127,23 @@ export async function listMembers(search?: string): Promise<MemberSummary[]> {
   const { rows } = await getPool().query<MemberSummary>(
     `SELECT u.id, u.name, u.email, u.phone, u.created_at,
        COALESCE(b.total_bookings, 0) as total_bookings,
-       COALESCE(b.total_paid, 0) as total_paid
+       COALESCE(b.total_paid, 0) as total_paid,
+       COALESCE(c.unpaid_fine_aed, 0) as unpaid_fine_aed,
+       COALESCE(c.warning_count, 0) as warning_count,
+       COALESCE(c.has_no_show, false) as has_no_show
      FROM users u
      LEFT JOIN (
        SELECT user_id, COUNT(*) as total_bookings,
          SUM(amount_paid) FILTER (WHERE payment_status = 'paid') as total_paid
        FROM bookings WHERE user_id IS NOT NULL GROUP BY user_id
      ) b ON b.user_id = u.id
+     LEFT JOIN (
+       SELECT user_id,
+         SUM(fine_amount_aed) FILTER (WHERE type = 'late_fine' AND fine_paid = false) as unpaid_fine_aed,
+         COUNT(*) FILTER (WHERE type = 'late_cancel_warning' AND reviewed_at IS NULL) as warning_count,
+         BOOL_OR(type = 'no_show' AND reviewed_at IS NULL) as has_no_show
+       FROM conduct_incidents GROUP BY user_id
+     ) c ON c.user_id = u.id
      WHERE ${where}
      ORDER BY u.name ASC`,
     params

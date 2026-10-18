@@ -13,6 +13,7 @@ import {
 } from "@/lib/repositories/bookings";
 import { joinWaitlist, leaveWaitlist } from "@/lib/repositories/waitlist";
 import { findGameById } from "@/lib/repositories/games";
+import { findUserById } from "@/lib/repositories/users";
 import { sendEmail, bookingConfirmationEmail, waitlistPromotionEmail } from "@/lib/email";
 import { logActivity } from "@/lib/repositories/activity";
 import { issueAndEmailReceipt } from "@/lib/receiptIssuer";
@@ -34,6 +35,8 @@ export async function reserveSpotAction(_prevState: ReserveState, formData: Form
         return { error: "You already have a spot in this game." };
       case "GAME_NOT_FOUND":
         return { error: "That game no longer exists." };
+      case "FINE_UNPAID":
+        return { error: "You have an unpaid late-arrival fine -- settle that with an admin before booking another Football game." };
     }
   }
 
@@ -113,6 +116,8 @@ export async function reserveSpotWithCreditAction(
         return { error: "That game no longer exists." };
       case "NO_CREDIT":
         return { error: "You don't have a credit for this sport." };
+      case "FINE_UNPAID":
+        return { error: "You have an unpaid late-arrival fine -- settle that with an admin before booking another Football game." };
     }
   }
 
@@ -151,6 +156,8 @@ export async function reserveSpotWithSubscriptionAction(
         return { error: "That game no longer exists." };
       case "NO_SUBSCRIPTION":
         return { error: "You don't have an active subscription for this sport." };
+      case "FINE_UNPAID":
+        return { error: "You have an unpaid late-arrival fine -- settle that with an admin before booking another Football game." };
     }
   }
 
@@ -208,6 +215,65 @@ export async function addAttendeeAction(
   revalidatePath("/games");
   revalidatePath("/bookings");
   revalidatePath("/admin");
+  return { success: true };
+}
+
+/**
+ * Admin-only: add someone to a *past* game -- unlike addAttendeeAction,
+ * this goes straight to Paid with the amount collected (there's no future
+ * spot left to "reserve" on a game that's already happened), and issues a
+ * receipt the same way markPaidAction does. Bound to
+ * `.bind(null, gameId, gameLabel)` where it's used as a form action -- see
+ * AddPastAttendeeForm.
+ */
+export async function addPastAttendeeAction(
+  gameId: string,
+  gameLabel: string,
+  _prevState: AddAttendeeState,
+  formData: FormData
+): Promise<AddAttendeeState> {
+  const session = await requireAdmin();
+  const memberId = String(formData.get("memberId") ?? "").trim();
+  const walkInName = String(formData.get("walkInName") ?? "").trim();
+  const amountAed = Number(formData.get("amountAed"));
+
+  if (!memberId && !walkInName) {
+    return { error: "Pick a member or enter a walk-in name." };
+  }
+  if (!Number.isFinite(amountAed) || amountAed < 0) {
+    return { error: "Enter a valid amount (0 or more)." };
+  }
+
+  const result = await addManualAttendee(
+    memberId
+      ? { kind: "member", userId: memberId, gameId, paidAmount: amountAed }
+      : { kind: "walkin", name: walkInName, gameId, paidAmount: amountAed }
+  );
+  if (!result.ok) {
+    switch (result.reason) {
+      case "GAME_NOT_FOUND":
+        return { error: "That game no longer exists." };
+      case "GAME_FULL":
+        return { error: "That game is already full -- edit its total spots first if needed." };
+      case "ALREADY_BOOKED":
+        return { error: "That member already has a spot in this game." };
+    }
+  }
+
+  await logActivity(session.id, "player_added", `Added ${result.name} to ${gameLabel} (AED ${amountAed}, paid)`, gameId);
+
+  const member = memberId ? await findUserById(memberId) : null;
+  await issueAndEmailReceipt({
+    userId: member?.id ?? null,
+    memberName: result.name,
+    memberEmail: member?.email ?? null,
+    description: gameLabel,
+    amountAed,
+    source: "booking",
+    sourceId: result.bookingId,
+  });
+
+  revalidatePath("/admin/past");
   return { success: true };
 }
 

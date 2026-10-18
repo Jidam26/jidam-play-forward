@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/session";
 import { listMembers } from "@/lib/repositories/users";
 import { getAllCreditBalances } from "@/lib/repositories/planPurchases";
+import { markFinePaidAction } from "@/lib/actions/conduct";
 import { formatMoney } from "@/lib/money";
 import { NavBar } from "@/components/NavBar";
 import { IssueCreditsForm } from "@/components/IssueCreditsForm";
@@ -64,6 +65,31 @@ export default async function MembersPage({
                     <p className="text-navy/60">AED {formatMoney(m.total_paid)} paid</p>
                   </div>
                 </div>
+
+                {(m.warning_count > 0 || m.has_no_show || m.unpaid_fine_aed > 0) && (
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                    {m.warning_count > 0 && (
+                      <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                        ⚠️ {m.warning_count} warning{m.warning_count === 1 ? "" : "s"}
+                      </span>
+                    )}
+                    {m.has_no_show && (
+                      <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">🚩 No-show</span>
+                    )}
+                    {m.unpaid_fine_aed > 0 && (
+                      <>
+                        <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">
+                          💰 AED {formatMoney(m.unpaid_fine_aed)} unpaid fine
+                        </span>
+                        <form action={markFinePaidAction.bind(null, m.id, m.name)}>
+                          <button type="submit" className="rounded-full border border-navy/20 px-2.5 py-1 text-xs font-semibold text-navy hover:bg-navy/5">
+                            Mark Fine Paid
+                          </button>
+                        </form>
+                      </>
+                    )}
+                  </div>
+                )}
 
                 {creditBalances.get(m.id) && creditBalances.get(m.id)!.size > 0 && (
                   <div className="mt-3 flex flex-wrap gap-1.5">

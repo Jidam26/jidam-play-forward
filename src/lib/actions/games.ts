@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/session";
-import { cancelGame, createGame, findGameById, updateGame } from "@/lib/repositories/games";
+import { cancelGame, createGame, deleteGame, findGameById, updateGame } from "@/lib/repositories/games";
 import { logActivity } from "@/lib/repositories/activity";
 
 export type FormState = { error?: string };
@@ -128,4 +128,28 @@ export async function cancelGameAction(gameId: string): Promise<void> {
   }
   revalidatePath("/games");
   revalidatePath("/admin");
+}
+
+/**
+ * Admin-only: permanently delete a game -- removes it and everyone's
+ * bookings for it, no undo. Usable on Live, Cancelled, or Past games.
+ * Logged with a snapshot description since the game won't exist to look up
+ * afterward. Bound to a specific gameId via `.bind(null, gameId)` where
+ * it's used as a form action -- see DeleteGameButton.
+ */
+export async function deleteGameAction(gameId: string): Promise<void> {
+  const session = await requireAdmin();
+  const game = await findGameById(gameId);
+  await deleteGame(gameId);
+  if (game) {
+    await logActivity(
+      session.id,
+      "game_deleted",
+      `Deleted ${game.sport} on ${game.date} at ${game.venue}`,
+      null
+    );
+  }
+  revalidatePath("/games");
+  revalidatePath("/admin");
+  revalidatePath("/admin/past");
 }

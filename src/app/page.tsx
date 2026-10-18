@@ -37,7 +37,7 @@ export default async function LandingPage() {
           />
 
           <div className="relative mx-auto max-w-2xl">
-            <Logo size="lg" inverted glow />
+            <Logo size="lg" glow />
             <p className="mt-3 text-lg font-semibold tracking-wide text-[var(--cinema-gold)] sm:text-xl">
               Play Forward
             </p>

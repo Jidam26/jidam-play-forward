@@ -1,9 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireBoss } from "@/lib/session";
 import { updateBusinessSettings } from "@/lib/repositories/receipts";
+import { resetAllGamesData } from "@/lib/repositories/reset";
+import { logActivity } from "@/lib/repositories/activity";
 
 export type FormState = { error?: string; success?: boolean };
 
@@ -37,4 +40,32 @@ export async function updateBusinessSettingsAction(_prevState: FormState, formDa
 
   revalidatePath("/admin/settings");
   return { success: true };
+}
+
+export type ResetGamesState = { error?: string };
+
+/**
+ * Boss-only, irreversible: wipes every game and everything tied to one
+ * (bookings, game expenses, waitlist entries) plus the entire receipts
+ * ledger. Members/credits/subscriptions/plans are untouched -- see
+ * resetAllGamesData. Requires the confirmation phrase to be typed exactly,
+ * checked here (not just in the UI) since this is destructive enough that
+ * client-side-only validation isn't enough.
+ */
+export async function resetAllGamesDataAction(_prevState: ResetGamesState, formData: FormData): Promise<ResetGamesState> {
+  const session = await requireBoss();
+  const confirmation = String(formData.get("confirmation") ?? "");
+  if (confirmation !== "DELETE") {
+    return { error: 'Type "DELETE" exactly to confirm.' };
+  }
+
+  await resetAllGamesData();
+  await logActivity(session.id, "games_reset", "Fresh start: permanently wiped all games, bookings, expenses, and receipts.");
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/past");
+  revalidatePath("/admin/reports");
+  revalidatePath("/admin/receipts");
+  revalidatePath("/games");
+  redirect("/admin");
 }

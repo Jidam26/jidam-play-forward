@@ -4,7 +4,7 @@ export function Footer() {
   return (
     <footer className="bg-navy px-6 py-12 text-offwhite/70">
       <div className="mx-auto flex max-w-5xl flex-col items-center gap-4 text-center">
-        <Logo inverted />
+        <Logo />
         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-gold">Play Forward</p>
         <p className="text-sm">Abu Dhabi, UAE</p>
         <a

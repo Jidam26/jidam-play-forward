@@ -14,6 +14,11 @@ const addExpenseSchema = z.object({
   date: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")]).optional(),
 });
 
+// Stored directly in the expenses row (see src/lib/db.ts) -- kept small so a
+// phone photo doesn't bloat the database or this form's upload.
+const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024; // 8MB
+const ALLOWED_ATTACHMENT_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "application/pdf"];
+
 /** gameId is null for a general (not game-specific) expense. */
 export async function addExpenseAction(
   gameId: string | null,
@@ -32,7 +37,23 @@ export async function addExpenseAction(
     return { error: parsed.error.issues[0]?.message ?? "Please check the form and try again." };
   }
 
-  await createExpense({ game_id: gameId, ...parsed.data, date: parsed.data.date || null });
+  let attachment: { data: Buffer; contentType: string; filename: string } | null = null;
+  const file = formData.get("receipt");
+  if (file instanceof File && file.size > 0) {
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      return { error: "That file is too big -- please attach something under 8MB." };
+    }
+    if (!ALLOWED_ATTACHMENT_TYPES.includes(file.type)) {
+      return { error: "Please attach a photo (JPG/PNG/WEBP/HEIC) or a PDF." };
+    }
+    attachment = {
+      data: Buffer.from(await file.arrayBuffer()),
+      contentType: file.type,
+      filename: file.name || "receipt",
+    };
+  }
+
+  await createExpense({ game_id: gameId, ...parsed.data, date: parsed.data.date || null, attachment });
 
   revalidatePath("/admin/past");
   return {};

@@ -44,6 +44,21 @@ export function ExpenseForm({ gameId }: { gameId: string | null }) {
           className="w-full rounded-lg border border-navy/20 bg-white px-2.5 py-2 text-sm text-navy outline-none focus:border-gold focus:ring-2 focus:ring-gold/30"
         />
       </label>
+      <label className="min-w-0 flex-1 basis-40">
+        <span className="mb-1 block text-xs font-medium text-navy/70">
+          Receipt <span className="font-normal text-navy/40">(optional)</span>
+        </span>
+        {/* No `capture` attribute -- that would force the camera open every
+            time. Leaving it off lets the OS show its normal picker, which
+            offers "Take Photo" alongside the gallery and files on a phone,
+            and a plain file browser on desktop. */}
+        <input
+          name="receipt"
+          type="file"
+          accept="image/*,application/pdf"
+          className="w-full rounded-lg border border-navy/20 bg-white px-2.5 py-1.5 text-xs text-navy outline-none file:mr-2 file:rounded-full file:border-0 file:bg-navy/10 file:px-2.5 file:py-1 file:text-xs file:font-semibold file:text-navy focus:border-gold focus:ring-2 focus:ring-gold/30"
+        />
+      </label>
       <SubmitButton pendingText="Adding..." className="w-auto px-4 py-2 text-sm">
         Add Expense
       </SubmitButton>

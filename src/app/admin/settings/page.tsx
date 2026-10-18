@@ -3,6 +3,7 @@ import { requireBoss } from "@/lib/session";
 import { getBusinessSettings } from "@/lib/repositories/receipts";
 import { NavBar } from "@/components/NavBar";
 import { BusinessSettingsForm } from "@/components/BusinessSettingsForm";
+import { ResetAllGamesForm } from "@/components/ResetAllGamesForm";
 
 export default async function SettingsPage() {
   const session = await requireBoss();
@@ -24,6 +25,7 @@ export default async function SettingsPage() {
         <div className="mt-6 rounded-2xl border border-navy/10 bg-white p-5 shadow-sm">
           <BusinessSettingsForm settings={settings} />
         </div>
+        <ResetAllGamesForm />
       </main>
     </>
   );
