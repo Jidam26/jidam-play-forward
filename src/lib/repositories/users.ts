@@ -187,7 +187,9 @@ export async function updateMember(
 /**
  * Admin-only, irreversible: permanently delete a member and everything
  * tied to them -- bookings, waitlist entries, credit balances, plan
- * purchases. conduct_incidents cascades automatically (see src/lib/db.ts).
+ * purchases, and any "forgot password" tokens they ever requested (even an
+ * old, already-used one still has a row here, and its FK has no ON DELETE
+ * clause). conduct_incidents cascades automatically (see src/lib/db.ts).
  * Receipts are the one exception -- that FK is ON DELETE SET NULL, so any
  * receipt this member was issued stays in the permanent ledger with its
  * member reference cleared (the receipt already snapshots the name/email
@@ -202,6 +204,7 @@ export async function deleteMember(userId: string): Promise<void> {
     await client.query("DELETE FROM waitlist_entries WHERE user_id = $1", [userId]);
     await client.query("DELETE FROM credit_balances WHERE user_id = $1", [userId]);
     await client.query("DELETE FROM plan_purchases WHERE user_id = $1", [userId]);
+    await client.query("DELETE FROM password_resets WHERE user_id = $1", [userId]);
     await client.query("DELETE FROM users WHERE id = $1 AND role = 'member'", [userId]);
     await client.query("COMMIT");
   } catch (err) {
