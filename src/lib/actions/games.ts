@@ -59,21 +59,34 @@ export async function publishGameAction(_prevState: FormState, formData: FormDat
 const editGameSchema = baseGameSchema
   .extend({
     spots_filled: z.coerce.number().int().min(0, "Can't be negative."),
-    imported_revenue: z.union([z.coerce.number().min(0), z.literal("")]).optional(),
+    // z.literal("") must come before the coercion branch -- z.coerce.number()
+    // happily coerces an empty string to 0 (Number("") === 0 in JS), so with
+    // the branches the other way around an untouched/cleared field would
+    // silently become a real 0 override instead of staying blank/null. This
+    // used to only affect past games (showing AED 0 instead of real revenue
+    // whenever one was edited); extending editing to live games surfaced it
+    // harder, since 0 isn't null, so a live game forced to imported_revenue=0
+    // drops out of listUpcomingGames' `imported_revenue IS NULL` filter
+    // entirely and disappears from view.
+    imported_revenue: z.union([z.literal(""), z.coerce.number().min(0)]).optional(),
   })
   .refine(timeOrderRefinement, timeOrderMessage);
 
 /**
- * Admin-only: correct any of a past game's details -- e.g. a game logged
- * before the booking system tracked real attendees, so it shows 0/20
- * filled when 20 people actually played. Unlike publishGameAction, this
- * doesn't touch the boss activity log (which the boss explicitly scoped to
- * just publish/cancel events, not edits) and doesn't redirect on its own --
- * the form does that once state.success comes back, matching how other
- * admin edit forms in this app work.
+ * Admin-only: correct any of a game's details -- e.g. a game logged before
+ * the booking system tracked real attendees, so it shows 0/20 filled when
+ * 20 people actually played. Works for a live, cancelled, or past game
+ * alike; `returnPath` sends the admin back to wherever they came from
+ * (Past Games vs the main Dashboard) once saved. Logged to the boss-only
+ * activity log, same as other edits.
  */
-export async function updateGameAction(gameId: string, _prevState: FormState, formData: FormData): Promise<FormState> {
-  await requireAdmin();
+export async function updateGameAction(
+  gameId: string,
+  returnPath: string,
+  _prevState: FormState,
+  formData: FormData
+): Promise<FormState> {
+  const session = await requireAdmin();
 
   const parsed = editGameSchema.safeParse({
     sport: formData.get("sport"),
@@ -102,9 +115,16 @@ export async function updateGameAction(gameId: string, _prevState: FormState, fo
       ? null
       : parsed.data.imported_revenue,
   });
+  await logActivity(
+    session.id,
+    "game_updated",
+    `Edited ${parsed.data.sport} on ${parsed.data.date} at ${parsed.data.venue}`,
+    gameId
+  );
 
+  revalidatePath("/admin");
   revalidatePath("/admin/past");
-  redirect("/admin/past");
+  redirect(returnPath);
 }
 
 /**

@@ -6,6 +6,7 @@ import { NavBar } from "@/components/NavBar";
 import { SportBadge } from "@/components/SportBadge";
 import { PlanForm } from "@/components/PlanForm";
 import { TogglePlanButton } from "@/components/TogglePlanButton";
+import { PlanActions } from "@/components/PlanActions";
 
 export default async function AdminPlansPage() {
   const session = await requireAdmin();
@@ -57,7 +58,10 @@ export default async function AdminPlansPage() {
                     &middot; AED {formatMoney(plan.price_aed)}
                   </p>
                 </div>
-                <TogglePlanButton planId={plan.id} active={plan.active} />
+                <div className="flex items-center gap-2">
+                  <TogglePlanButton planId={plan.id} active={plan.active} />
+                  <PlanActions plan={plan} />
+                </div>
               </div>
             ))}
           </div>

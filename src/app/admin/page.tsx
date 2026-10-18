@@ -76,6 +76,12 @@ export default async function AdminDashboardPage() {
                 attendees={liveAttendees.get(game.id) ?? []}
                 actions={
                   <div className="flex items-center gap-2">
+                    <Link
+                      href={`/admin/games/${game.id}/edit`}
+                      className="rounded-full border border-navy/20 px-3 py-1 text-xs font-semibold text-navy hover:bg-navy/5"
+                    >
+                      Edit
+                    </Link>
                     <CancelGameButton gameId={game.id} />
                     <DeleteGameButton
                       gameId={game.id}
@@ -110,10 +116,18 @@ export default async function AdminDashboardPage() {
                   game={game}
                   attendees={cancelledAttendees.get(game.id) ?? []}
                   actions={
-                    <DeleteGameButton
-                      gameId={game.id}
-                      gameLabel={`${game.sport} on ${formatDate(game.date)} at ${game.venue}`}
-                    />
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href={`/admin/games/${game.id}/edit`}
+                        className="rounded-full border border-navy/20 px-3 py-1 text-xs font-semibold text-navy hover:bg-navy/5"
+                      >
+                        Edit
+                      </Link>
+                      <DeleteGameButton
+                        gameId={game.id}
+                        gameLabel={`${game.sport} on ${formatDate(game.date)} at ${game.venue}`}
+                      />
+                    </div>
                   }
                 />
               ))}

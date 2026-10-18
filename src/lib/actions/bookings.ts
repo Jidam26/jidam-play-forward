@@ -6,6 +6,7 @@ import {
   cancelBooking,
   deleteAttendee,
   markBookingPaid,
+  updateBookingAmount,
   reserveSpot,
   reserveSpotWithCredit,
   reserveSpotWithSubscription,
@@ -273,6 +274,33 @@ export async function addPastAttendeeAction(
     sourceId: result.bookingId,
   });
 
+  revalidatePath("/admin/past");
+  return { success: true };
+}
+
+export type EditBookingAmountState = { error?: string; success?: boolean };
+
+/**
+ * Admin-only: correct the amount on an already-paid booking (fixes a typo
+ * without re-triggering a receipt the way markPaidAction does). Bound to
+ * `.bind(null, bookingId, attendeeName, gameLabel, gameId)`.
+ */
+export async function editBookingAmountAction(
+  bookingId: string,
+  attendeeName: string,
+  gameLabel: string,
+  gameId: string,
+  _prevState: EditBookingAmountState,
+  formData: FormData
+): Promise<EditBookingAmountState> {
+  const session = await requireAdmin();
+  const amount = Number(formData.get("amount"));
+  if (!Number.isFinite(amount) || amount < 0) {
+    return { error: "Enter a valid amount (0 or more)." };
+  }
+  await updateBookingAmount(bookingId, amount);
+  await logActivity(session.id, "booking_updated", `Corrected ${attendeeName}'s amount to AED ${amount} for ${gameLabel}`, gameId);
+  revalidatePath("/admin");
   revalidatePath("/admin/past");
   return { success: true };
 }

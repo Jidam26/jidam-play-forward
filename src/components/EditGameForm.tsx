@@ -7,8 +7,8 @@ import { SubmitButton } from "@/components/SubmitButton";
 
 const initialState: FormState = {};
 
-export function EditGameForm({ game }: { game: Game }) {
-  const action = updateGameAction.bind(null, game.id);
+export function EditGameForm({ game, returnPath }: { game: Game; returnPath: string }) {
+  const action = updateGameAction.bind(null, game.id, returnPath);
   const [state, formAction] = useActionState(action, initialState);
 
   return (

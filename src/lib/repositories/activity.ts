@@ -15,7 +15,18 @@ export type ActivityEntry = {
     | "games_reset"
     | "conduct_flagged"
     | "conduct_reviewed"
-    | "fine_paid";
+    | "fine_paid"
+    | "game_updated"
+    | "member_updated"
+    | "member_deleted"
+    | "booking_updated"
+    | "expense_updated"
+    | "plan_updated"
+    | "plan_deleted"
+    | "credit_adjusted"
+    | "subscription_updated"
+    | "subscription_cancelled"
+    | "receipt_voided";
   game_id: string | null;
   description: string;
   created_at: string;

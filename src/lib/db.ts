@@ -334,6 +334,28 @@ async function migrate(client: PoolClient) {
       note TEXT,
       created_at TEXT NOT NULL DEFAULT (now()::text)
     );
+
+    -- A voided receipt stays in the ledger (never deleted -- see the
+    -- comment on this table above) but is marked as cancelled, so an
+    -- accountant knows not to count it. See repositories/receipts.ts.
+    ALTER TABLE receipts ADD COLUMN IF NOT EXISTS voided BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE receipts ADD COLUMN IF NOT EXISTS voided_at TEXT;
+
+    -- Deleting a member (see repositories/users.ts deleteMember) explicitly
+    -- removes their bookings/credits/subscriptions first, but receipts are
+    -- the one exception -- a payment record must survive even if the member
+    -- account that made it is later deleted. Default FK name for an inline
+    -- column reference is <table>_<column>_fkey.
+    ALTER TABLE receipts DROP CONSTRAINT IF EXISTS receipts_user_id_fkey;
+    ALTER TABLE receipts ADD CONSTRAINT receipts_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+
+    -- Deleting a plan (see repositories/plans.ts deletePlan) must not be
+    -- blocked by its past purchases -- those already snapshot plan_type/
+    -- sport/games_included/duration_days/price_aed at purchase time (see
+    -- the comment on plan_purchases above), so they stay meaningful with
+    -- plan_id cleared.
+    ALTER TABLE plan_purchases DROP CONSTRAINT IF EXISTS plan_purchases_plan_id_fkey;
+    ALTER TABLE plan_purchases ADD CONSTRAINT plan_purchases_plan_id_fkey FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE SET NULL;
   `);
 
   // A booking is either a real member's (user_id set) or a walk-in's

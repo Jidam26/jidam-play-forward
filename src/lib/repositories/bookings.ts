@@ -507,6 +507,17 @@ export async function markBookingPaid(bookingId: string, amountPaid: number): Pr
   );
 }
 
+/**
+ * Admin-only: correct the amount on an already-paid booking (e.g. a typo
+ * when it was first marked paid). Unlike markBookingPaid, this doesn't
+ * touch payment_status -- it's only for fixing the number on a booking
+ * that's already paid.
+ */
+export async function updateBookingAmount(bookingId: string, amountPaid: number): Promise<void> {
+  await ensureDb();
+  await getPool().query("UPDATE bookings SET amount_paid = $2 WHERE id = $1", [bookingId, amountPaid]);
+}
+
 export type Attendee = {
   booking_id: string;
   user_id: string | null;

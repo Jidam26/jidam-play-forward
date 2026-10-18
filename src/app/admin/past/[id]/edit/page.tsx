@@ -25,7 +25,7 @@ export default async function EditPastGamePage({ params }: { params: Promise<{ i
           {game.sport} on {game.date} at {game.venue}
         </p>
         <div className="mt-6">
-          <EditGameForm game={game} />
+          <EditGameForm game={game} returnPath="/admin/past" />
         </div>
       </main>
     </>

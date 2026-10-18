@@ -160,6 +160,58 @@ export async function listMemberOptions(): Promise<{ id: string; name: string; e
   return rows;
 }
 
+/** Admin-only: correct a member's profile fields. Throws Error("EMAIL_TAKEN") if the new email belongs to someone else. */
+export async function updateMember(
+  userId: string,
+  input: { name: string; email: string; phone: string }
+): Promise<void> {
+  await ensureDb();
+  const email = input.email.toLowerCase().trim();
+  const existing = await findUserByEmail(email);
+  if (existing && existing.id !== userId) {
+    throw new Error("EMAIL_TAKEN");
+  }
+  try {
+    await getPool().query(
+      "UPDATE users SET name = $2, email = $3, phone = $4 WHERE id = $1 AND role = 'member'",
+      [userId, input.name.trim(), email, input.phone.trim()]
+    );
+  } catch (err) {
+    if ((err as { code?: string }).code === "23505") {
+      throw new Error("EMAIL_TAKEN");
+    }
+    throw err;
+  }
+}
+
+/**
+ * Admin-only, irreversible: permanently delete a member and everything
+ * tied to them -- bookings, waitlist entries, credit balances, plan
+ * purchases. conduct_incidents cascades automatically (see src/lib/db.ts).
+ * Receipts are the one exception -- that FK is ON DELETE SET NULL, so any
+ * receipt this member was issued stays in the permanent ledger with its
+ * member reference cleared (the receipt already snapshots the name/email
+ * at issue time, so it stays meaningful on its own).
+ */
+export async function deleteMember(userId: string): Promise<void> {
+  await ensureDb();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM bookings WHERE user_id = $1", [userId]);
+    await client.query("DELETE FROM waitlist_entries WHERE user_id = $1", [userId]);
+    await client.query("DELETE FROM credit_balances WHERE user_id = $1", [userId]);
+    await client.query("DELETE FROM plan_purchases WHERE user_id = $1", [userId]);
+    await client.query("DELETE FROM users WHERE id = $1 AND role = 'member'", [userId]);
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export function verifyPassword(user: User, password: string): boolean {
   return bcrypt.compareSync(password, user.password_hash);
 }

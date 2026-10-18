@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/session";
 import { listReceipts } from "@/lib/repositories/receipts";
+import { voidReceiptAction } from "@/lib/actions/receipts";
 import { formatMoney } from "@/lib/money";
 import { NavBar } from "@/components/NavBar";
 
@@ -11,7 +12,7 @@ function formatDateTime(iso: string) {
 export default async function ReceiptsPage() {
   const session = await requireAdmin();
   const receipts = await listReceipts();
-  const total = receipts.reduce((sum, r) => sum + r.amount_aed, 0);
+  const total = receipts.reduce((sum, r) => sum + (r.voided ? 0 : r.amount_aed), 0);
 
   return (
     <>
@@ -46,16 +47,36 @@ export default async function ReceiptsPage() {
                   <th className="px-4 py-3 font-medium">From</th>
                   <th className="px-4 py-3 font-medium">For</th>
                   <th className="px-4 py-3 font-medium">Amount</th>
+                  <th className="px-4 py-3 font-medium"></th>
                 </tr>
               </thead>
               <tbody>
                 {receipts.map((r) => (
-                  <tr key={r.id} className="border-b border-navy/5 last:border-0">
-                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-navy">{r.receipt_number}</td>
+                  <tr key={r.id} className={`border-b border-navy/5 last:border-0 ${r.voided ? "opacity-50" : ""}`}>
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-navy">
+                      {r.receipt_number}
+                      {r.voided && (
+                        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                          Voided
+                        </span>
+                      )}
+                    </td>
                     <td className="whitespace-nowrap px-4 py-3 text-navy/70">{formatDateTime(r.created_at)}</td>
                     <td className="px-4 py-3 text-navy">{r.member_name}</td>
                     <td className="px-4 py-3 text-navy/70">{r.description}</td>
                     <td className="whitespace-nowrap px-4 py-3 font-semibold text-navy">AED {formatMoney(r.amount_aed)}</td>
+                    <td className="whitespace-nowrap px-4 py-3">
+                      {!r.voided && (
+                        <form action={voidReceiptAction.bind(null, r.id)}>
+                          <button
+                            type="submit"
+                            className="rounded-full border border-navy/20 px-2.5 py-1 text-xs font-semibold text-navy hover:bg-navy/5"
+                          >
+                            Void
+                          </button>
+                        </form>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

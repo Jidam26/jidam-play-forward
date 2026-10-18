@@ -8,7 +8,7 @@ import { listMemberOptions } from "@/lib/repositories/users";
 import { formatMoney } from "@/lib/money";
 import { AdminGameCard } from "@/components/AdminGameCard";
 import { ExpenseForm } from "@/components/ExpenseForm";
-import { DeleteExpenseButton } from "@/components/DeleteExpenseButton";
+import { ExpenseRow } from "@/components/ExpenseRow";
 import { DeleteGameButton } from "@/components/DeleteGameButton";
 import { AddPastAttendeeForm } from "@/components/AddPastAttendeeForm";
 import { NavBar } from "@/components/NavBar";
@@ -18,36 +18,12 @@ function formatDate(dateStr: string) {
   return date.toLocaleDateString("en-AE", { weekday: "short", day: "numeric", month: "short" });
 }
 
-function formatExpenseDate(dateStr: string) {
-  return new Date(`${dateStr}T00:00:00`).toLocaleDateString("en-AE", { day: "numeric", month: "short", year: "numeric" });
-}
-
 function ExpenseList({ expenses }: { expenses: Expense[] }) {
   if (expenses.length === 0) return <p className="text-xs text-navy/50">No expenses logged.</p>;
   return (
     <ul className="space-y-1">
       {expenses.map((e) => (
-        <li key={e.id} className="flex items-center justify-between text-sm">
-          <span className="text-navy/80">
-            {e.description}
-            {e.date && <span className="ml-2 text-xs text-navy/40">{formatExpenseDate(e.date)}</span>}
-            {e.has_attachment && (
-              <a
-                href={`/api/expenses/${e.id}/attachment`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="ml-2 text-xs font-semibold text-navy/50 hover:text-gold"
-                title="View attached receipt"
-              >
-                📎 Receipt
-              </a>
-            )}
-          </span>
-          <span className="flex items-center gap-3">
-            <span className="font-medium text-navy">AED {formatMoney(e.amount)}</span>
-            <DeleteExpenseButton expenseId={e.id} />
-          </span>
-        </li>
+        <ExpenseRow key={e.id} expense={e} />
       ))}
     </ul>
   );

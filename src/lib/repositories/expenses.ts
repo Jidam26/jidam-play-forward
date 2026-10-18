@@ -79,6 +79,39 @@ export async function totalExpensesByGame(gameIds: string[]): Promise<Map<string
   return totals;
 }
 
+export type UpdateExpenseInput = {
+  description: string;
+  amount: number;
+  date?: string | null;
+  /** Pass to replace the existing attachment; omit to leave it as-is. */
+  attachment?: { data: Buffer; contentType: string; filename: string } | null;
+};
+
+/** Admin-only: correct a logged expense's description/amount/date, and optionally replace its attachment. */
+export async function updateExpense(id: string, input: UpdateExpenseInput): Promise<Expense> {
+  await ensureDb();
+  const { rows } =
+    input.attachment !== undefined
+      ? await getPool().query<Expense>(
+          `UPDATE expenses SET description=$2, amount=$3, date=$4, attachment_data=$5, attachment_content_type=$6, attachment_filename=$7
+           WHERE id=$1 RETURNING ${EXPENSE_COLUMNS}`,
+          [
+            id,
+            input.description.trim(),
+            input.amount,
+            input.date || null,
+            input.attachment?.data ?? null,
+            input.attachment?.contentType ?? null,
+            input.attachment?.filename ?? null,
+          ]
+        )
+      : await getPool().query<Expense>(
+          `UPDATE expenses SET description=$2, amount=$3, date=$4 WHERE id=$1 RETURNING ${EXPENSE_COLUMNS}`,
+          [id, input.description.trim(), input.amount, input.date || null]
+        );
+  return rows[0];
+}
+
 export async function deleteExpense(id: string): Promise<void> {
   await ensureDb();
   await getPool().query("DELETE FROM expenses WHERE id = $1", [id]);

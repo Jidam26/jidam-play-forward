@@ -7,6 +7,7 @@ import { markPaidAction } from "@/lib/actions/bookings";
 import { SportBadge } from "@/components/SportBadge";
 import { DeleteAttendeeButton } from "@/components/DeleteAttendeeButton";
 import { ConductActions } from "@/components/ConductActions";
+import { EditBookingAmountButton } from "@/components/EditBookingAmountButton";
 
 function formatDate(dateStr: string) {
   const date = new Date(`${dateStr}T00:00:00`);
@@ -149,7 +150,7 @@ export function AdminGameCard({
                             ? "Paid (credit)"
                             : a.paid_via_subscription
                               ? "Paid (subscription)"
-                              : "Paid"
+                              : `Paid · AED ${formatMoney(a.amount_paid)}`
                           : "Reserved"}
                       </span>
                       {a.payment_status !== "paid" && (
@@ -172,6 +173,15 @@ export function AdminGameCard({
                             Mark as Paid
                           </button>
                         </form>
+                      )}
+                      {a.payment_status === "paid" && (
+                        <EditBookingAmountButton
+                          bookingId={a.booking_id}
+                          attendeeName={a.name}
+                          gameLabel={`${game.sport} on ${formatDate(game.date)}`}
+                          gameId={game.id}
+                          currentAmount={a.amount_paid}
+                        />
                       )}
                     </div>
                   </td>

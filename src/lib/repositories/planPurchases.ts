@@ -216,6 +216,74 @@ export async function getActiveSubscriptions(userId: string): Promise<Map<string
   return map;
 }
 
+/**
+ * Admin-only: directly set a member's credit balance for a sport to an
+ * exact number -- used to correct a mistake or remove credits entirely
+ * (pass 0). Doesn't go through plan_purchases/issueCreditsDirectly since
+ * there's no new "purchase" here, just a correction to the running total.
+ */
+export async function setCreditBalance(userId: string, sport: string, balance: number): Promise<void> {
+  await ensureDb();
+  await getPool().query(
+    `INSERT INTO credit_balances (user_id, sport, balance) VALUES ($1, $2, $3)
+     ON CONFLICT (user_id, sport) DO UPDATE SET balance = $3`,
+    [userId, sport, balance]
+  );
+}
+
+/**
+ * Admin-only: cancel a member's active subscription for a sport by backdating
+ * valid_until to yesterday -- hasActiveSubscription then reads it as expired.
+ * Doesn't delete the plan_purchases row, so the purchase stays in their
+ * history; only the newest active one is touched (ORDER BY valid_until DESC
+ * LIMIT 1), matching getActiveSubscriptions' "furthest-out" semantics.
+ */
+export async function cancelSubscription(userId: string, sport: string): Promise<void> {
+  await ensureDb();
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  await getPool().query(
+    `UPDATE plan_purchases SET valid_until = $3
+     WHERE id = (
+       SELECT id FROM plan_purchases
+       WHERE user_id = $1 AND sport = $2 AND plan_type = 'subscription' AND payment_status = 'paid' AND valid_until >= $4
+       ORDER BY valid_until DESC LIMIT 1
+     )`,
+    [userId, sport, yesterday, new Date().toISOString().slice(0, 10)]
+  );
+}
+
+/** Admin-only: extend or shorten a member's active subscription for a sport to a new expiry date. Same targeting as cancelSubscription. */
+export async function updateSubscriptionValidUntil(userId: string, sport: string, newValidUntil: string): Promise<void> {
+  await ensureDb();
+  await getPool().query(
+    `UPDATE plan_purchases SET valid_until = $3
+     WHERE id = (
+       SELECT id FROM plan_purchases
+       WHERE user_id = $1 AND sport = $2 AND plan_type = 'subscription' AND payment_status = 'paid'
+       ORDER BY valid_until DESC LIMIT 1
+     )`,
+    [userId, sport, newValidUntil]
+  );
+}
+
+/** Every member's active subscriptions at once, for the Members directory -- avoids one query per row. Same "furthest-out per sport" semantics as getActiveSubscriptions. */
+export async function getAllActiveSubscriptions(): Promise<Map<string, Map<string, string>>> {
+  await ensureDb();
+  const { rows } = await getPool().query<{ user_id: string; sport: string; valid_until: string }>(
+    `SELECT user_id, sport, valid_until FROM plan_purchases
+     WHERE plan_type = 'subscription' AND payment_status = 'paid' AND valid_until >= $1
+     ORDER BY valid_until DESC`,
+    [new Date().toISOString().slice(0, 10)]
+  );
+  const map = new Map<string, Map<string, string>>();
+  for (const r of rows) {
+    const bySport = map.get(r.user_id) ?? new Map<string, string>();
+    if (!bySport.has(r.sport)) bySport.set(r.sport, r.valid_until);
+    map.set(r.user_id, bySport);
+  }
+  return map;
+}
+
 /** Revenue collected from plan purchases (credit packs + subscriptions) -- a distinct stream from per-game amount_paid, so Reports totals both separately. */
 export async function totalPlanRevenue(): Promise<number> {
   await ensureDb();

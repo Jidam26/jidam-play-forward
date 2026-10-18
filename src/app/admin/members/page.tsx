@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/session";
 import { listMembers } from "@/lib/repositories/users";
-import { getAllCreditBalances } from "@/lib/repositories/planPurchases";
+import { getAllCreditBalances, getAllActiveSubscriptions } from "@/lib/repositories/planPurchases";
 import { markFinePaidAction } from "@/lib/actions/conduct";
 import { formatMoney } from "@/lib/money";
 import { NavBar } from "@/components/NavBar";
 import { IssueCreditsForm } from "@/components/IssueCreditsForm";
+import { MemberActions } from "@/components/MemberActions";
+import { SetCreditBalanceForm } from "@/components/SetCreditBalanceForm";
+import { SubscriptionBadge } from "@/components/SubscriptionBadge";
 
 function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString("en-AE", { day: "numeric", month: "short", year: "numeric" });
@@ -18,7 +21,11 @@ export default async function MembersPage({
 }) {
   const session = await requireAdmin();
   const { q } = await searchParams;
-  const [members, creditBalances] = await Promise.all([listMembers(q), getAllCreditBalances()]);
+  const [members, creditBalances, activeSubscriptions] = await Promise.all([
+    listMembers(q),
+    getAllCreditBalances(),
+    getAllActiveSubscriptions(),
+  ]);
 
   return (
     <>
@@ -101,9 +108,19 @@ export default async function MembersPage({
                   </div>
                 )}
 
-                <div className="mt-3">
+                {activeSubscriptions.get(m.id) && activeSubscriptions.get(m.id)!.size > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {[...activeSubscriptions.get(m.id)!.entries()].map(([sport, validUntil]) => (
+                      <SubscriptionBadge key={sport} userId={m.id} memberName={m.name} sport={sport} validUntil={validUntil} />
+                    ))}
+                  </div>
+                )}
+
+                <div className="mt-3 flex flex-wrap gap-2">
                   <IssueCreditsForm userId={m.id} memberName={m.name} />
+                  <SetCreditBalanceForm userId={m.id} memberName={m.name} />
                 </div>
+                <MemberActions userId={m.id} name={m.name} email={m.email} phone={m.phone} />
               </div>
             ))}
           </div>

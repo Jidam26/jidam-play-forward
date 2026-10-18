@@ -12,6 +12,9 @@ export type Receipt = {
   source: "booking" | "plan_purchase";
   source_id: string | null;
   created_at: string;
+  /** A voided receipt stays in the permanent ledger (never deleted) but is marked cancelled -- see voidReceipt. */
+  voided: boolean;
+  voided_at: string | null;
 };
 
 export type IssueReceiptInput = {
@@ -66,6 +69,16 @@ export async function findReceiptById(id: string): Promise<Receipt | undefined> 
   await ensureDb();
   const { rows } = await getPool().query<Receipt>("SELECT * FROM receipts WHERE id = $1", [id]);
   return rows[0];
+}
+
+/**
+ * Admin-only: mark a receipt as cancelled without deleting it -- the row
+ * stays in the permanent ledger forever (see the comment on this table in
+ * src/lib/db.ts), just flagged so an accountant knows not to count it.
+ */
+export async function voidReceipt(id: string): Promise<void> {
+  await ensureDb();
+  await getPool().query("UPDATE receipts SET voided = true, voided_at = now()::text WHERE id = $1 AND voided = false", [id]);
 }
 
 export type BusinessSettings = {

@@ -4,8 +4,15 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireAdmin, requireSession } from "@/lib/session";
-import { createPlan, setPlanActive } from "@/lib/repositories/plans";
-import { requestPlanPurchase, confirmPlanPurchase, issueCreditsDirectly } from "@/lib/repositories/planPurchases";
+import { createPlan, setPlanActive, updatePlan, deletePlan, findPlanById } from "@/lib/repositories/plans";
+import {
+  requestPlanPurchase,
+  confirmPlanPurchase,
+  issueCreditsDirectly,
+  setCreditBalance,
+  cancelSubscription,
+  updateSubscriptionValidUntil,
+} from "@/lib/repositories/planPurchases";
 import { findUserById } from "@/lib/repositories/users";
 import { logActivity } from "@/lib/repositories/activity";
 import { issueAndEmailReceipt } from "@/lib/receiptIssuer";
@@ -116,6 +123,51 @@ export async function setPlanActiveAction(planId: string, active: boolean): Prom
   revalidatePath("/plans");
 }
 
+const updatePlanSchema = z.object({
+  sport: z.string().trim().min(2, "Please choose or enter a sport."),
+  name: z.string().trim().min(2, "Please enter a plan name."),
+  games_included: z.coerce.number().int().min(1, "Must include at least 1 game.").optional(),
+  duration_days: z.coerce.number().int().min(1, "Must last at least 1 day.").optional(),
+  price_aed: z.coerce.number().min(0, "Price can't be negative."),
+  payment_link: z.union([z.string().trim().url("Please enter a valid payment link."), z.literal("")]).optional(),
+});
+
+/** Admin-only: correct a plan's terms (not its type -- see the comment on updatePlan). Bound to `.bind(null, planId)`. */
+export async function updatePlanAction(planId: string, _prevState: FormState, formData: FormData): Promise<FormState> {
+  await requireAdmin();
+  const parsed = updatePlanSchema.safeParse({
+    sport: formData.get("sport"),
+    name: formData.get("name"),
+    games_included: formData.get("games_included") || undefined,
+    duration_days: formData.get("duration_days") || undefined,
+    price_aed: formData.get("price_aed"),
+    // formData.get() returns null (not undefined) for an absent field --
+    // z.union(...).optional() only treats undefined as "missing", so a
+    // bare null here fails validation instead of just being skipped.
+    payment_link: formData.get("payment_link") || undefined,
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Please check the form and try again." };
+  }
+  await updatePlan(planId, { ...parsed.data, payment_link: parsed.data.payment_link || null });
+  revalidatePath("/admin/plans");
+  revalidatePath("/plans");
+  return {};
+}
+
+/**
+ * Admin-only, irreversible: permanently delete a plan. Bound to
+ * `.bind(null, planId)`.
+ */
+export async function deletePlanAction(planId: string): Promise<void> {
+  const session = await requireAdmin();
+  const plan = await findPlanById(planId);
+  await deletePlan(planId);
+  if (plan) await logActivity(session.id, "plan_deleted", `Deleted plan "${plan.name}"`);
+  revalidatePath("/admin/plans");
+  revalidatePath("/plans");
+}
+
 export type RequestPlanState = { error?: string; success?: boolean };
 
 export async function requestPlanPurchaseAction(
@@ -172,4 +224,57 @@ export async function confirmPlanPurchaseAction(
 
   revalidatePath("/admin");
   revalidatePath("/plans");
+}
+
+export type CreditBalanceState = { error?: string };
+
+/**
+ * Admin-only: directly correct a member's credit balance for a sport (or
+ * set it to 0 to remove it entirely) -- not a new purchase, just a
+ * correction. Bound to `.bind(null, userId, memberName)`.
+ */
+export async function setCreditBalanceAction(
+  userId: string,
+  memberName: string,
+  _prevState: CreditBalanceState,
+  formData: FormData
+): Promise<CreditBalanceState> {
+  const session = await requireAdmin();
+  const sport = String(formData.get("sport") ?? "").trim();
+  const balance = Number(formData.get("balance"));
+  if (!sport) return { error: "Choose a sport." };
+  if (!Number.isFinite(balance) || balance < 0) return { error: "Enter a valid balance (0 or more)." };
+
+  await setCreditBalance(userId, sport, balance);
+  await logActivity(session.id, "credit_adjusted", `Set ${memberName}'s ${sport} credit balance to ${balance}`);
+  revalidatePath("/admin/members");
+  return {};
+}
+
+/** Admin-only: cancel a member's active subscription for a sport. Bound to `.bind(null, userId, memberName, sport)`. */
+export async function cancelSubscriptionAction(userId: string, memberName: string, sport: string): Promise<void> {
+  const session = await requireAdmin();
+  await cancelSubscription(userId, sport);
+  await logActivity(session.id, "subscription_cancelled", `Cancelled ${memberName}'s ${sport} subscription`);
+  revalidatePath("/admin/members");
+}
+
+export type EditSubscriptionState = { error?: string };
+
+/** Admin-only: extend/shorten a member's active subscription for a sport. Bound to `.bind(null, userId, memberName, sport)`. */
+export async function updateSubscriptionAction(
+  userId: string,
+  memberName: string,
+  sport: string,
+  _prevState: EditSubscriptionState,
+  formData: FormData
+): Promise<EditSubscriptionState> {
+  const session = await requireAdmin();
+  const validUntil = String(formData.get("validUntil") ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(validUntil)) return { error: "Choose a valid date." };
+
+  await updateSubscriptionValidUntil(userId, sport, validUntil);
+  await logActivity(session.id, "subscription_updated", `Changed ${memberName}'s ${sport} subscription to expire ${validUntil}`);
+  revalidatePath("/admin/members");
+  return {};
 }
